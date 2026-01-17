@@ -1,4 +1,4 @@
-package abrupt_test;
+package structure_detector;
 
 import java.util.ArrayList;
 import java.util.List;
