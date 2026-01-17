@@ -998,6 +998,156 @@ public class StructureDetector {
     }
 
     /**
+     * Detects labeled blocks for if-statement skip patterns outside of loops.
+     * This handles cases where one branch of an if skips over some code to a common merge point.
+     * 
+     * Pattern example:
+     * if (cond) {
+     *   x;
+     *   if (cond2) {
+     *     y;
+     *   } else {
+     *     // skip to A1
+     *   }
+     * } else {
+     *   // skip to A1
+     * }
+     * A1: label_end: { ... }
+     */
+    private void detectSkipBlocks(List<IfStructure> ifs) {
+        // Get all nodes that are inside loops
+        List<LoopStructure> loops = detectLoops();
+        Set<Node> nodesInLoops = new HashSet<>();
+        for (LoopStructure loop : loops) {
+            nodesInLoops.addAll(loop.body);
+        }
+        
+        // For each if structure, check if one branch "skips" to a node that the other branch
+        // reaches through a longer path
+        for (IfStructure ifStruct : ifs) {
+            Node cond = ifStruct.conditionNode;
+            Node trueBranch = ifStruct.trueBranch;
+            Node falseBranch = ifStruct.falseBranch;
+            
+            if (trueBranch == null || falseBranch == null) continue;
+            
+            // Skip if-statements inside loops - they're handled differently
+            if (nodesInLoops.contains(cond)) continue;
+            
+            // Check if false branch is a "skip" to a node that true branch eventually reaches
+            Node skipTarget = detectSkipTarget(cond, trueBranch, falseBranch);
+            if (skipTarget != null && !nodesInLoops.contains(skipTarget)) {
+                // Create a labeled block from trueBranch to skipTarget
+                String label = skipTarget.getLabel() + "_blk";
+                
+                // Check if this block already exists
+                boolean exists = false;
+                for (LabeledBlockStructure block : labeledBlocks) {
+                    if (block.startNode.equals(trueBranch) && block.endNode.equals(skipTarget)) {
+                        exists = true;
+                        break;
+                    }
+                }
+                
+                if (!exists) {
+                    addLabeledBlock(label, trueBranch, skipTarget);
+                }
+            }
+            
+            // Check if true branch is a "skip" to a node that false branch eventually reaches
+            skipTarget = detectSkipTarget(cond, falseBranch, trueBranch);
+            if (skipTarget != null && !nodesInLoops.contains(skipTarget)) {
+                // Create a labeled block from falseBranch to skipTarget
+                String label = skipTarget.getLabel() + "_blk";
+                
+                // Check if this block already exists
+                boolean exists = false;
+                for (LabeledBlockStructure block : labeledBlocks) {
+                    if (block.startNode.equals(falseBranch) && block.endNode.equals(skipTarget)) {
+                        exists = true;
+                        break;
+                    }
+                }
+                
+                if (!exists) {
+                    addLabeledBlock(label, falseBranch, skipTarget);
+                }
+            }
+        }
+    }
+
+    /**
+     * Detects if 'skipBranch' directly jumps to a node that 'mainBranch' reaches through a longer path.
+     * This indicates a "skip" pattern that may need a labeled block.
+     * 
+     * @param cond The condition node
+     * @param mainBranch The branch that takes the longer path
+     * @param skipBranch The branch that might be skipping
+     * @return The skip target node if a skip pattern is detected, null otherwise
+     */
+    private Node detectSkipTarget(Node cond, Node mainBranch, Node skipBranch) {
+        // Check if skipBranch directly reaches a node that mainBranch reaches through a longer path
+        // The skip target must be reachable from mainBranch
+        
+        Set<Node> mainReachable = new HashSet<>();
+        Queue<Node> queue = new LinkedList<>();
+        queue.add(mainBranch);
+        while (!queue.isEmpty()) {
+            Node n = queue.poll();
+            if (mainReachable.contains(n)) continue;
+            mainReachable.add(n);
+            for (Node succ : n.succs) {
+                queue.add(succ);
+            }
+        }
+        
+        // Check if skipBranch goes directly to a node reachable from mainBranch
+        // AND that node is not the immediate next node after mainBranch
+        if (mainReachable.contains(skipBranch)) {
+            // skipBranch is reachable from mainBranch - check if it's a "skip"
+            // by verifying the path from mainBranch to skipBranch is longer than 1
+            int pathLength = shortestPathLengthTo(mainBranch, skipBranch, new HashSet<>());
+            if (pathLength > 1) {
+                // This is a skip pattern - skipBranch is directly reached from cond
+                // but mainBranch takes a longer path to get there
+                return skipBranch;
+            }
+        }
+        
+        // Also check nested if patterns: if skipBranch leads to a node that mainBranch also leads to
+        // through intermediate if structures
+        for (Node succ : skipBranch.succs) {
+            if (mainReachable.contains(succ) && !succ.equals(mainBranch)) {
+                int pathLength = shortestPathLengthTo(mainBranch, succ, new HashSet<>());
+                if (pathLength > 1) {
+                    return succ;
+                }
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * Computes the shortest path length from 'from' to 'to'.
+     * Returns Integer.MAX_VALUE if no path exists.
+     */
+    private int shortestPathLengthTo(Node from, Node to, Set<Node> visited) {
+        if (from.equals(to)) return 0;
+        if (visited.contains(from)) return Integer.MAX_VALUE;
+        visited.add(from);
+        
+        int minLength = Integer.MAX_VALUE;
+        for (Node succ : from.succs) {
+            int length = shortestPathLengthTo(succ, to, new HashSet<>(visited));
+            if (length != Integer.MAX_VALUE && length + 1 < minLength) {
+                minLength = length + 1;
+            }
+        }
+        return minLength;
+    }
+
+    /**
      * Generates a Graphviz/DOT representation of the CFG.
      * 
      * @return DOT format string representing the CFG
@@ -1030,6 +1180,9 @@ public class StructureDetector {
         
         // Automatically detect labeled blocks for continue semantics
         detectContinueBlocks(loops);
+        
+        // Automatically detect labeled blocks for skip patterns
+        detectSkipBlocks(ifs);
         
         // Create lookup maps for quick access
         Map<Node, LoopStructure> loopHeaders = new HashMap<>();
@@ -1986,6 +2139,20 @@ public class StructureDetector {
             return;
         }
         
+        // Check if this regular node leads outside the block (needs a labeled break)
+        boolean leadsOutside = false;
+        for (Node succ : node.succs) {
+            if (succ.equals(currentBlock.endNode) && node.succs.size() == 1) {
+                // Natural fall-through to block end - output break
+                sb.append(indent).append(node.getLabel()).append(";\n");
+                sb.append(indent).append("break ").append(currentBlock.label).append(";\n");
+                return;
+            }
+            if (!currentBlock.body.contains(succ)) {
+                leadsOutside = true;
+            }
+        }
+        
         // Regular node
         sb.append(indent).append(node.getLabel()).append(";\n");
         
@@ -1994,6 +2161,9 @@ public class StructureDetector {
             if (currentBlock.body.contains(succ)) {
                 generatePseudocodeInBlock(succ, visited, sb, indent, loopHeaders, ifConditions, 
                                           labeledBreakEdges, currentBlock);
+            } else if (leadsOutside && succ.equals(currentBlock.endNode)) {
+                // Explicit break to block end
+                sb.append(indent).append("break ").append(currentBlock.label).append(";\n");
             }
         }
     }
@@ -2023,6 +2193,9 @@ public class StructureDetector {
         
         // Auto-detect labeled blocks for continue semantics
         detectContinueBlocks(loops);
+        
+        // Auto-detect labeled blocks for skip patterns (outside of loops)
+        detectSkipBlocks(ifs);
         
         System.out.println("Labeled Block Structures (" + labeledBlocks.size() + "):");
         for (LabeledBlockStructure block : labeledBlocks) {
@@ -2290,5 +2463,39 @@ public class StructureDetector {
         System.out.println(detector9.toPseudocode());
         System.out.println("--- Graphviz/DOT ---");
         System.out.println(detector9.toGraphviz());
+
+        // Example 10: Labeled block with nested if-statements
+        // ifa false branch skips to A1, ifc false branch (z) also skips to A1
+        // This pattern requires a labeled block
+        System.out.println("\n===== Example 10: Labeled Block with Nested Ifs =====");
+        StructureDetector detector10 = StructureDetector.fromGraphviz(
+            "digraph {\n" +
+            "  start->ifa;\n" +
+            "  ifa->x;\n" +
+            "  ifa->A1;\n" +
+            "  x->ifc;\n" +
+            "  ifc->y;\n" +
+            "  ifc->z;\n" +
+            "  y->A2;\n" +
+            "  z->A1;\n" +
+            "  A1->d;\n" +
+            "  d->A2;\n" +
+            "  A2->end;\n" +
+            "}"
+        );
+        detector10.analyze();
+        System.out.println("\n--- Detected Structures ---");
+        System.out.println("If Structures: " + detector10.detectIfs().size());
+        for (IfStructure s : detector10.detectIfs()) {
+            System.out.println("  " + s);
+        }
+        System.out.println("Labeled Block Structures: " + detector10.getLabeledBlocks().size());
+        for (LabeledBlockStructure s : detector10.getLabeledBlocks()) {
+            System.out.println("  " + s);
+        }
+        System.out.println("\n--- Pseudocode ---");
+        System.out.println(detector10.toPseudocode());
+        System.out.println("--- Graphviz/DOT ---");
+        System.out.println(detector10.toGraphviz());
     }
 }
