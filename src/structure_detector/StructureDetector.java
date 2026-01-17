@@ -672,24 +672,119 @@ public class StructureDetector {
                 }
                 
                 if (bodyStart != null) {
-                    // Create a labeled block from bodyStart to backEdgeSource
+                    // Find the correct block end - the node where continue paths converge
+                    // This is the entry point to the "continue chain" that leads to backEdgeSource
+                    Node blockEnd = findContinueBlockEnd(loop, backEdgeSource);
+                    
+                    // Skip labeled block creation if blockEnd is null (e.g., bodyStart == blockEnd)
+                    if (blockEnd == null) {
+                        continue;
+                    }
+                    
+                    // Create a labeled block from bodyStart to blockEnd
                     String label = loop.header.getLabel() + "_cont";
                     
                     // Check if this block already exists
                     boolean exists = false;
                     for (LabeledBlockStructure block : labeledBlocks) {
-                        if (block.startNode.equals(bodyStart) && block.endNode.equals(backEdgeSource)) {
+                        if (block.startNode.equals(bodyStart) && block.endNode.equals(blockEnd)) {
                             exists = true;
                             break;
                         }
                     }
                     
                     if (!exists) {
-                        addLabeledBlock(label, bodyStart, backEdgeSource);
+                        addLabeledBlock(label, bodyStart, blockEnd);
                     }
                 }
             }
         }
+    }
+    
+    /**
+     * Finds the correct end node for a continue block.
+     * This is the first node in the chain from loop body to back-edge source
+     * where multiple paths converge (the entry point of the continue chain).
+     */
+    private Node findContinueBlockEnd(LoopStructure loop, Node backEdgeSource) {
+        // Trace backwards from backEdgeSource to find the first convergence point
+        // where multiple distinct paths from the loop body meet
+        
+        Set<Node> visited = new HashSet<>();
+        Queue<Node> queue = new LinkedList<>();
+        queue.add(backEdgeSource);
+        
+        Node blockEnd = backEdgeSource;
+        
+        while (!queue.isEmpty()) {
+            Node current = queue.poll();
+            if (visited.contains(current)) continue;
+            visited.add(current);
+            
+            // Count predecessors from the loop body
+            List<Node> loopPreds = new ArrayList<>();
+            for (Node pred : current.preds) {
+                if (loop.body.contains(pred) && !pred.equals(loop.header)) {
+                    loopPreds.add(pred);
+                }
+            }
+            
+            // If we have multiple predecessors from different paths, this is a convergence point
+            if (loopPreds.size() >= 2) {
+                // Check if these predecessors are from truly different code paths
+                // (not just two branches of the same conditional merging immediately)
+                boolean fromDifferentPaths = false;
+                for (int i = 0; i < loopPreds.size() && !fromDifferentPaths; i++) {
+                    for (int j = i + 1; j < loopPreds.size(); j++) {
+                        Node pred1 = loopPreds.get(i);
+                        Node pred2 = loopPreds.get(j);
+                        
+                        // Check if pred1 and pred2 have a common immediate parent conditional
+                        // If not, they're from truly different paths
+                        boolean shareImmediateParent = false;
+                        for (Node p1Parent : pred1.preds) {
+                            for (Node p2Parent : pred2.preds) {
+                                if (p1Parent.equals(p2Parent) && p1Parent.succs.size() >= 2) {
+                                    shareImmediateParent = true;
+                                    break;
+                                }
+                            }
+                            if (shareImmediateParent) break;
+                        }
+                        
+                        if (!shareImmediateParent) {
+                            fromDifferentPaths = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (fromDifferentPaths) {
+                    blockEnd = current;
+                    break;
+                }
+            }
+            
+            // Continue searching backwards
+            for (Node pred : loopPreds) {
+                queue.add(pred);
+            }
+        }
+        
+        // Make sure blockEnd is different from bodyStart - if they're the same,
+        // we don't need a labeled block (empty body)
+        Node bodyStart = null;
+        for (Node succ : loop.header.succs) {
+            if (loop.body.contains(succ) && !succ.equals(loop.header)) {
+                bodyStart = succ;
+                break;
+            }
+        }
+        if (blockEnd != null && blockEnd.equals(bodyStart)) {
+            return null; // No labeled block needed
+        }
+        
+        return blockEnd;
     }
     
     /**
@@ -1795,7 +1890,7 @@ public class StructureDetector {
         //       loop_b_cont: {
         //         while (inner_cond) {
         //           if (e == 9) { trace_X; break loop_b; }
-        //           if (e == 20) { trace_Y; break loop_a_cont; } // continue loop_a -> inc_c
+        //           if (e == 20) { trace_Y; break loop_a_cont; } // continue loop_a -> my_cont
         //           if (e == 8) { trace_Z; break loop_b_cont; }  // break inner -> inc_d
         //           trace_BA; break loop_a;
         //           inc_e;
@@ -1805,7 +1900,7 @@ public class StructureDetector {
         //     }
         //     trace_hello;
         //   }
-        //   inc_c;
+        //   my_cont -> ternar -> (pre_inc_a | pre_inc_b) -> inc_c;
         // }
         System.out.println("\n===== Example 8: Complex Nested Loops with Labeled Breaks =====");
         StructureDetector detector8 = StructureDetector.fromGraphviz(
@@ -1827,7 +1922,7 @@ public class StructureDetector {
             // if (e == 20) { trace("Y"); continue loop_a; }
             "  check_e20->trace_Y;\n" +                // true -> trace_Y
             "  check_e20->check_e8;\n" +               // false -> continue to check_e8
-            "  trace_Y->inc_c;\n" +                    // trace_Y -> continue loop_a (c++)
+            "  trace_Y->my_cont;\n" +                  // trace_Y -> continue loop_a (to my_cont)
             // if (e == 8) { trace("Z"); break; }
             "  check_e8->trace_Z;\n" +                 // true -> trace_Z
             "  check_e8->trace_BA;\n" +                // false -> trace_BA
@@ -1838,8 +1933,14 @@ public class StructureDetector {
             "  inc_e->inner_cond;\n" +                 // e++ -> back to inner condition
             // loop_b: d++ after inner loop exits normally
             "  inc_d->loop_b_cond;\n" +                // d++ -> back to loop_b condition
-            // trace("hello") at end of loop_a body
-            "  trace_hello->inc_c;\n" +                // trace_hello -> c++
+            // trace("hello") at end of loop_a body -> my_cont (after loop_a_cont block)
+            "  trace_hello->my_cont;\n" +              // trace_hello -> my_cont
+            // my_cont section (after loop_a_cont block)
+            "  my_cont->ternar;\n" +                   // my_cont -> ternar
+            "  ternar->pre_inc_a;\n" +                 // ternar true -> pre_inc_a
+            "  ternar->pre_inc_b;\n" +                 // ternar false -> pre_inc_b
+            "  pre_inc_a->inc_c;\n" +                  // pre_inc_a -> inc_c
+            "  pre_inc_b->inc_c;\n" +                  // pre_inc_b -> inc_c
             // loop_a: c++ at end of iteration
             "  inc_c->loop_a_cond;\n" +                // c++ -> back to loop_a condition
             "}"
