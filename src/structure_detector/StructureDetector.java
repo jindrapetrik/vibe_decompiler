@@ -729,7 +729,7 @@ public class StructureDetector {
             if (loopContinue != null) {
                 Set<Node> loopVisited = new HashSet<>();
                 loopVisited.add(node); // Don't revisit header
-                generatePseudocodeInLoop(loopContinue, loopVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, loop, currentBlock);
+                generatePseudocodeInLoop(loopContinue, loopVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loop, currentBlock);
             }
             
             sb.append(indent).append("}\n");
@@ -779,6 +779,7 @@ public class StructureDetector {
     private void generatePseudocodeInLoop(Node node, Set<Node> visited, StringBuilder sb, String indent,
                                            Map<Node, LoopStructure> loopHeaders, Map<Node, IfStructure> ifConditions,
                                            Map<Node, LabeledBreakEdge> labeledBreakEdges,
+                                           Map<Node, LabeledBlockStructure> blockStarts,
                                            LoopStructure currentLoop, LabeledBlockStructure currentBlock) {
         if (node == null || visited.contains(node)) {
             return;
@@ -786,6 +787,32 @@ public class StructureDetector {
         
         // Don't go outside the loop
         if (!currentLoop.body.contains(node)) {
+            return;
+        }
+        
+        // Stop at the current block's end node (we'll process it after the block closes)
+        if (currentBlock != null && node.equals(currentBlock.endNode)) {
+            return;
+        }
+        
+        // Check if this is a labeled block start (before marking as visited)
+        LabeledBlockStructure block = blockStarts.get(node);
+        if (block != null && currentBlock != block) {
+            sb.append(indent).append(block.label).append(": {\n");
+            
+            // Generate body of the block within the loop
+            Set<Node> blockVisited = new HashSet<>();
+            generatePseudocodeInLoop(node, blockVisited, sb, indent + "    ", loopHeaders, ifConditions, 
+                                     labeledBreakEdges, blockStarts, currentLoop, block);
+            
+            sb.append(indent).append("}\n");
+            
+            // Continue after the block (with the end node)
+            visited.addAll(blockVisited);
+            if (currentLoop.body.contains(block.endNode)) {
+                generatePseudocodeInLoop(block.endNode, visited, sb, indent, loopHeaders, ifConditions, 
+                                        labeledBreakEdges, blockStarts, currentLoop, null);
+            }
             return;
         }
         
@@ -802,22 +829,22 @@ public class StructureDetector {
                     sb.append(indent).append("} else {\n");
                     Set<Node> elseVisited = new HashSet<>(visited);
                     elseVisited.add(node);
-                    generatePseudocodeInLoop(ifStruct.falseBranch, elseVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                    generatePseudocodeInLoop(ifStruct.falseBranch, elseVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
                 } else if (ifStruct.falseBranch.equals(labeledBreak.to)) {
                     Set<Node> thenVisited = new HashSet<>(visited);
                     thenVisited.add(node);
-                    generatePseudocodeInLoop(ifStruct.trueBranch, thenVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                    generatePseudocodeInLoop(ifStruct.trueBranch, thenVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
                     sb.append(indent).append("} else {\n");
                     sb.append(indent).append("    break ").append(labeledBreak.label).append(";\n");
                 } else {
                     // Neither branch is the direct labeled break target, continue normally
                     Set<Node> thenVisited = new HashSet<>(visited);
                     thenVisited.add(node);
-                    generatePseudocodeInLoop(ifStruct.trueBranch, thenVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                    generatePseudocodeInLoop(ifStruct.trueBranch, thenVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
                     sb.append(indent).append("} else {\n");
                     Set<Node> elseVisited = new HashSet<>(visited);
                     elseVisited.add(node);
-                    generatePseudocodeInLoop(ifStruct.falseBranch, elseVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                    generatePseudocodeInLoop(ifStruct.falseBranch, elseVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
                 }
                 sb.append(indent).append("}\n");
                 return;
@@ -838,11 +865,11 @@ public class StructureDetector {
                         sb.append(indent).append("} else {\n");
                         Set<Node> elseVisited = new HashSet<>(visited);
                         elseVisited.add(node);
-                        generatePseudocodeInLoop(ifStruct.falseBranch, elseVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                        generatePseudocodeInLoop(ifStruct.falseBranch, elseVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
                     } else {
                         Set<Node> thenVisited = new HashSet<>(visited);
                         thenVisited.add(node);
-                        generatePseudocodeInLoop(ifStruct.trueBranch, thenVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                        generatePseudocodeInLoop(ifStruct.trueBranch, thenVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
                         sb.append(indent).append("} else {\n");
                         sb.append(indent).append("    break;\n");
                     }
@@ -865,11 +892,11 @@ public class StructureDetector {
                         sb.append(indent).append("} else {\n");
                         Set<Node> elseVisited = new HashSet<>(visited);
                         elseVisited.add(node);
-                        generatePseudocodeInLoop(ifStruct.falseBranch, elseVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                        generatePseudocodeInLoop(ifStruct.falseBranch, elseVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
                     } else {
                         Set<Node> thenVisited = new HashSet<>(visited);
                         thenVisited.add(node);
-                        generatePseudocodeInLoop(ifStruct.trueBranch, thenVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                        generatePseudocodeInLoop(ifStruct.trueBranch, thenVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
                         sb.append(indent).append("} else {\n");
                         sb.append(indent).append("    continue;\n");
                     }
@@ -899,13 +926,13 @@ public class StructureDetector {
             if (loopContinue != null) {
                 Set<Node> nestedVisited = new HashSet<>();
                 nestedVisited.add(node);
-                generatePseudocodeInLoop(loopContinue, nestedVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, nestedLoop, currentBlock);
+                generatePseudocodeInLoop(loopContinue, nestedVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, nestedLoop, currentBlock);
             }
             
             sb.append(indent).append("}\n");
             
             if (loopExit != null && currentLoop.body.contains(loopExit)) {
-                generatePseudocodeInLoop(loopExit, visited, sb, indent, loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                generatePseudocodeInLoop(loopExit, visited, sb, indent, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
             }
             return;
         }
@@ -916,19 +943,19 @@ public class StructureDetector {
             sb.append(indent).append("if (").append(node.getLabel()).append(") {\n");
             
             Set<Node> trueVisited = new HashSet<>(visited);
-            generatePseudocodeInLoop(ifStruct.trueBranch, trueVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+            generatePseudocodeInLoop(ifStruct.trueBranch, trueVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
             
             sb.append(indent).append("} else {\n");
             
             Set<Node> falseVisited = new HashSet<>(visited);
-            generatePseudocodeInLoop(ifStruct.falseBranch, falseVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+            generatePseudocodeInLoop(ifStruct.falseBranch, falseVisited, sb, indent + "    ", loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
             
             sb.append(indent).append("}\n");
             
             if (ifStruct.mergeNode != null && currentLoop.body.contains(ifStruct.mergeNode)) {
                 visited.addAll(trueVisited);
                 visited.addAll(falseVisited);
-                generatePseudocodeInLoop(ifStruct.mergeNode, visited, sb, indent, loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                generatePseudocodeInLoop(ifStruct.mergeNode, visited, sb, indent, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
             }
             return;
         }
@@ -939,7 +966,7 @@ public class StructureDetector {
         // Continue with successors inside the loop
         for (Node succ : node.succs) {
             if (currentLoop.body.contains(succ) && !succ.equals(currentLoop.header)) {
-                generatePseudocodeInLoop(succ, visited, sb, indent, loopHeaders, ifConditions, labeledBreakEdges, currentLoop, currentBlock);
+                generatePseudocodeInLoop(succ, visited, sb, indent, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, currentLoop, currentBlock);
             }
         }
     }
