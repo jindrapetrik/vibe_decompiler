@@ -910,12 +910,11 @@ public class StructureDetector {
                 }
             }
             
-            // Skip the big block creation - we use detectSkipBlocksInLoops for multiple distinct blocks
-            // The old logic created one big block from bodyStart to backEdgeSource, but that's
-            // not correct when there are multiple independent skip patterns within the loop.
+            // Continue block detection is now handled by detectSkipBlocksInLoops
+            // which creates separate labeled blocks for each skip pattern within the loop.
         }
         
-        // Now detect skip blocks within loops (separate labeled blocks for skip patterns)
+        // Detect skip blocks within loops (separate labeled blocks for skip patterns)
         detectSkipBlocksInLoops(loops, mainLoops);
     }
     
@@ -1111,48 +1110,6 @@ public class StructureDetector {
             }
         }
         return null;
-    }
-    
-    /**
-     * Finds the block start for a skip pattern in a loop.
-     * This traces back from the condition to find the earliest condition node
-     * that leads to both the skip source and non-skip paths.
-     */
-    private Node findBlockStartInLoop(Node cond, Node skipSource, Node mergeNode, LoopStructure loop, List<IfStructure> ifs) {
-        // Find the condition node that dominates this skip pattern
-        // Start from cond and trace backwards to find the earliest related condition
-        
-        // First, check if there's a parent condition that encompasses this skip
-        for (IfStructure parentIf : ifs) {
-            if (!loop.body.contains(parentIf.conditionNode)) continue;
-            if (parentIf.conditionNode.equals(cond)) continue;
-            
-            // Check if this parent if leads to cond through its body
-            if (isReachableWithinLoop(parentIf.trueBranch, cond, loop) ||
-                isReachableWithinLoop(parentIf.falseBranch, cond, loop)) {
-                // If the parent's merge is the same as our merge, use parent as block start
-                if (parentIf.mergeNode != null && parentIf.mergeNode.equals(mergeNode)) {
-                    return parentIf.conditionNode;
-                }
-            }
-        }
-        
-        // No parent found, check if cond itself has an ancestor in the loop
-        // that should be the block start
-        for (Node pred : cond.preds) {
-            if (loop.body.contains(pred) && !pred.equals(loop.header)) {
-                // Check if this pred is a condition node
-                for (IfStructure predIf : ifs) {
-                    if (predIf.conditionNode.equals(pred)) {
-                        // Check if pred's successor is a better block start
-                        // by seeing if it also leads to mergeNode through other paths
-                        return predIf.conditionNode;
-                    }
-                }
-            }
-        }
-        
-        return cond;
     }
     
     /**
