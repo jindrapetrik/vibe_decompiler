@@ -71,6 +71,7 @@ public class SwitchStatement extends Statement {
     
     private final List<Case> cases;
     private final String label;
+    private final int labelId;
     
     /**
      * Creates a new switch statement without a label.
@@ -78,7 +79,7 @@ public class SwitchStatement extends Statement {
      * @param cases the list of cases (including default)
      */
     public SwitchStatement(List<Case> cases) {
-        this(cases, null);
+        this(cases, null, -1);
     }
     
     /**
@@ -86,10 +87,12 @@ public class SwitchStatement extends Statement {
      * 
      * @param cases the list of cases (including default)
      * @param label the label for the switch (e.g., "loop1"), or null for no label
+     * @param labelId the global ID of the switch (-1 if no label)
      */
-    public SwitchStatement(List<Case> cases, String label) {
+    public SwitchStatement(List<Case> cases, String label, int labelId) {
         this.cases = cases != null ? new ArrayList<>(cases) : new ArrayList<>();
         this.label = label;
+        this.labelId = labelId;
     }
     
     /**
@@ -111,24 +114,12 @@ public class SwitchStatement extends Statement {
     }
     
     /**
-     * Gets the global ID of the switch extracted from the label.
-     * The label format is expected to be "loop_X" where X is the global ID.
+     * Gets the global ID of the switch.
      * 
-     * @return the global ID, or -1 if the label is null or doesn't contain a valid ID
+     * @return the global ID, or -1 if no label
      */
     public int getLabelId() {
-        if (label == null || label.isEmpty()) {
-            return -1;
-        }
-        int underscoreIndex = label.lastIndexOf('_');
-        if (underscoreIndex == -1 || underscoreIndex == label.length() - 1) {
-            return -1;
-        }
-        try {
-            return Integer.parseInt(label.substring(underscoreIndex + 1));
-        } catch (NumberFormatException e) {
-            return -1;
-        }
+        return labelId;
     }
     
     @Override

@@ -12,13 +12,15 @@ import java.util.Set;
  */
 public class LabeledBlockStructure {
     public final String label;
+    public final int labelId;
     public final Node startNode;       // first node in the block
     public final Node endNode;         // node after the block (break target)
     public final Set<Node> body;       // all nodes in the block
     public final List<LabeledBreakEdge> breaks;
 
-    public LabeledBlockStructure(String label, Node startNode, Node endNode, Set<Node> body) {
+    public LabeledBlockStructure(String label, int labelId, Node startNode, Node endNode, Set<Node> body) {
         this.label = label;
+        this.labelId = labelId;
         this.startNode = startNode;
         this.endNode = endNode;
         this.body = body;

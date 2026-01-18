@@ -8,21 +8,25 @@ package com.jpexs.decompiler.vibe.statement;
 public class ContinueStatement extends Statement {
     
     private final String label;
+    private final int labelId;
     
     /**
      * Creates a new unlabeled continue statement.
      */
     public ContinueStatement() {
         this.label = null;
+        this.labelId = -1;
     }
     
     /**
      * Creates a new labeled continue statement.
      * 
      * @param label the label to continue to (can be null for unlabeled continue)
+     * @param labelId the global ID of the target loop (-1 if unlabeled)
      */
-    public ContinueStatement(String label) {
+    public ContinueStatement(String label, int labelId) {
         this.label = label;
+        this.labelId = labelId;
     }
     
     /**
@@ -35,24 +39,12 @@ public class ContinueStatement extends Statement {
     }
     
     /**
-     * Gets the global ID of the target loop extracted from the label.
-     * The label format is expected to be "loop_X" where X is the global ID.
+     * Gets the global ID of the target loop.
      * 
-     * @return the global ID, or -1 if the label is null or doesn't contain a valid ID
+     * @return the global ID, or -1 if unlabeled
      */
     public int getLabelId() {
-        if (label == null || label.isEmpty()) {
-            return -1;
-        }
-        int underscoreIndex = label.lastIndexOf('_');
-        if (underscoreIndex == -1 || underscoreIndex == label.length() - 1) {
-            return -1;
-        }
-        try {
-            return Integer.parseInt(label.substring(underscoreIndex + 1));
-        } catch (NumberFormatException e) {
-            return -1;
-        }
+        return labelId;
     }
     
     /**

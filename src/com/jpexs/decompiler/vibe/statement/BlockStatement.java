@@ -12,16 +12,19 @@ import java.util.List;
 public class BlockStatement extends Statement {
     
     private final String label;
+    private final int labelId;
     private final List<Statement> body;
     
     /**
      * Creates a new labeled block statement.
      * 
      * @param label the block label
+     * @param labelId the global ID of the block
      * @param body the block body statements
      */
-    public BlockStatement(String label, List<Statement> body) {
+    public BlockStatement(String label, int labelId, List<Statement> body) {
         this.label = label;
+        this.labelId = labelId;
         this.body = body != null ? new ArrayList<>(body) : new ArrayList<>();
     }
     
@@ -35,24 +38,12 @@ public class BlockStatement extends Statement {
     }
     
     /**
-     * Gets the global ID of the block extracted from the label.
-     * The label format is expected to be "block_X" where X is the global ID.
+     * Gets the global ID of the block.
      * 
-     * @return the global ID, or -1 if the label is null or doesn't contain a valid ID
+     * @return the global ID
      */
     public int getLabelId() {
-        if (label == null || label.isEmpty()) {
-            return -1;
-        }
-        int underscoreIndex = label.lastIndexOf('_');
-        if (underscoreIndex == -1 || underscoreIndex == label.length() - 1) {
-            return -1;
-        }
-        try {
-            return Integer.parseInt(label.substring(underscoreIndex + 1));
-        } catch (NumberFormatException e) {
-            return -1;
-        }
+        return labelId;
     }
     
     /**

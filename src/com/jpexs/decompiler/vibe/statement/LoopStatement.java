@@ -11,6 +11,7 @@ import java.util.List;
 public class LoopStatement extends Statement {
     
     private final String label;
+    private final int labelId;
     private final List<Statement> body;
     
     /**
@@ -20,6 +21,7 @@ public class LoopStatement extends Statement {
      */
     public LoopStatement(List<Statement> body) {
         this.label = null;
+        this.labelId = -1;
         this.body = body != null ? new ArrayList<>(body) : new ArrayList<>();
     }
     
@@ -27,10 +29,12 @@ public class LoopStatement extends Statement {
      * Creates a new labeled while(true) loop.
      * 
      * @param label the loop label (can be null for unlabeled loop)
+     * @param labelId the global ID of the loop (-1 if unlabeled)
      * @param body the loop body statements
      */
-    public LoopStatement(String label, List<Statement> body) {
+    public LoopStatement(String label, int labelId, List<Statement> body) {
         this.label = label;
+        this.labelId = labelId;
         this.body = body != null ? new ArrayList<>(body) : new ArrayList<>();
     }
     
@@ -44,24 +48,12 @@ public class LoopStatement extends Statement {
     }
     
     /**
-     * Gets the global ID of the loop extracted from the label.
-     * The label format is expected to be "loop_X" where X is the global ID.
+     * Gets the global ID of the loop.
      * 
-     * @return the global ID, or -1 if the label is null or doesn't contain a valid ID
+     * @return the global ID, or -1 if unlabeled
      */
     public int getLabelId() {
-        if (label == null || label.isEmpty()) {
-            return -1;
-        }
-        int underscoreIndex = label.lastIndexOf('_');
-        if (underscoreIndex == -1 || underscoreIndex == label.length() - 1) {
-            return -1;
-        }
-        try {
-            return Integer.parseInt(label.substring(underscoreIndex + 1));
-        } catch (NumberFormatException e) {
-            return -1;
-        }
+        return labelId;
     }
     
     /**
