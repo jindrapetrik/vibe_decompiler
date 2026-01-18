@@ -54,19 +54,23 @@ public class StructureDetector {
     private final Map<Node, String> loopLabels = new HashMap<>();
     // Maps block label strings (old style like "node_block") to new style (e.g., "block1")
     private final Map<String, String> blockLabelMapping = new HashMap<>();
+    //Code dialect
+    private Dialect dialect;
 
     /**
      * Creates a new StructureDetector for the given CFG.
      * 
      * @param entryNode the entry node of the CFG
+     * @param dialect Code dialect
      */
-    public StructureDetector(Node entryNode) {
+    public StructureDetector(Node entryNode, Dialect dialect) {
         this.entryNode = entryNode;
         this.allNodes = collectAllNodes(entryNode);
         // Build nodesByLabel map
         for (Node node : allNodes) {
             nodesByLabel.put(node.getLabel(), node);
         }
+        this.dialect = dialect;
     }
     
     /**
@@ -75,12 +79,14 @@ public class StructureDetector {
      * 
      * @param entryNode the entry node of the CFG
      * @param parsedNodes map of all parsed nodes by their labels
+     * @param dialect Code dialect
      */
-    private StructureDetector(Node entryNode, Map<String, Node> parsedNodes) {
+    private StructureDetector(Node entryNode, Map<String, Node> parsedNodes, Dialect dialect) {
         this.entryNode = entryNode;
         this.allNodes = collectAllNodes(entryNode);
         // Store all parsed nodes (including those not reachable from entry)
         this.nodesByLabel = new LinkedHashMap<>(parsedNodes);
+        this.dialect = dialect;
     }
     
     /**
@@ -156,6 +162,7 @@ public class StructureDetector {
         Node.resetIdCounter();
         Map<String, Node> nodes = new LinkedHashMap<>();
         Node firstNode = null;
+        DotDialect dotDialect = DotDialect.INSTANCE;
         
         // Remove "digraph {" and "}" wrapper
         String content = dot.trim();
@@ -206,7 +213,7 @@ public class StructureDetector {
             throw new IllegalArgumentException("No nodes found in DOT string");
         }
         
-        return new StructureDetector(firstNode, nodes);
+        return new StructureDetector(firstNode, dotDialect);
     }
 
     /**
