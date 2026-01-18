@@ -2390,8 +2390,24 @@ public class StructureDetector {
      * (has no predecessors that are also in the try body).
      */
     private TryStructure findTryStructureStartingAt(Node node) {
+        TryStructure result = null;
+        int smallestSize = Integer.MAX_VALUE;
+        
         for (TryStructure tryStruct : tryStructures) {
             if (tryStruct.tryBody.contains(node)) {
+                // Skip if this node is in a catch body of another try structure
+                // (it can't start a try from within a catch block)
+                boolean inOtherCatch = false;
+                for (TryStructure otherTry : tryStructures) {
+                    if (otherTry != tryStruct && otherTry.catchBody.contains(node)) {
+                        inOtherCatch = true;
+                        break;
+                    }
+                }
+                if (inOtherCatch) {
+                    continue;
+                }
+                
                 // Check if this node is the first in the try body
                 // (no predecessors in the try body)
                 boolean isFirst = true;
@@ -2402,11 +2418,15 @@ public class StructureDetector {
                     }
                 }
                 if (isFirst) {
-                    return tryStruct;
+                    // Prefer the smallest try structure (innermost)
+                    if (tryStruct.tryBody.size() < smallestSize) {
+                        smallestSize = tryStruct.tryBody.size();
+                        result = tryStruct;
+                    }
                 }
             }
         }
-        return null;
+        return result;
     }
     
     /**
@@ -2519,6 +2539,92 @@ public class StructureDetector {
         }
         
         visited.add(node);
+        
+        // Check if this node starts a nested try block (check before if structure)
+        TryStructure nestedTry = findTryStructureStartingAt(node);
+        if (nestedTry != null) {
+            // Generate nested try-catch statement
+            // Temporarily remove this node from visited to allow proper processing
+            visited.remove(node);
+            
+            Set<Node> tryVisited = new HashSet<>();
+            tryVisited.add(node);  // Mark the start node as already visited
+            
+            // Build try body statements - need to handle if the start node is also an if condition
+            List<Statement> tryBodyStmts = new ArrayList<>();
+            IfStructure ifStruct = ifConditions.get(node);
+            if (ifStruct != null && nestedTry.tryBody.contains(ifStruct.trueBranch) && nestedTry.tryBody.contains(ifStruct.falseBranch)) {
+                // The start node is an if-condition with both branches in the try body
+                // Find merge node within the try body
+                Node mergeNode = ifStruct.mergeNode;
+                if (mergeNode != null && !nestedTry.tryBody.contains(mergeNode)) {
+                    mergeNode = findMergeNode(ifStruct.trueBranch, ifStruct.falseBranch);
+                    if (mergeNode != null && !nestedTry.tryBody.contains(mergeNode)) {
+                        mergeNode = null;
+                    }
+                }
+                
+                Set<Node> trueVisited = new HashSet<>(tryVisited);
+                List<Statement> onTrue = generateStatementsForNodeSet(ifStruct.trueBranch, nestedTry.tryBody, trueVisited,
+                                           loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                                           loopsNeedingLabels, currentLoop, currentBlock, switchStarts, mergeNode);
+                
+                Set<Node> falseVisited = new HashSet<>(tryVisited);
+                List<Statement> onFalse = generateStatementsForNodeSet(ifStruct.falseBranch, nestedTry.tryBody, falseVisited,
+                                           loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                                           loopsNeedingLabels, currentLoop, currentBlock, switchStarts, mergeNode);
+                
+                tryBodyStmts.add(new IfStatement(node.getLabel(), false, onTrue, onFalse));
+                
+                tryVisited.addAll(trueVisited);
+                tryVisited.addAll(falseVisited);
+                
+                // Generate code after the merge node within the try body
+                if (mergeNode != null && nestedTry.tryBody.contains(mergeNode) && !tryVisited.contains(mergeNode)) {
+                    tryBodyStmts.addAll(generateStatementsForNodeSet(mergeNode, nestedTry.tryBody, tryVisited,
+                                   loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                                   loopsNeedingLabels, currentLoop, currentBlock, switchStarts, null));
+                }
+            } else {
+                // Not an if condition or only one branch in try body - treat as regular node
+                tryBodyStmts.add(new ExpressionStatement(node.getLabel()));
+                
+                // Process successors within the try body
+                for (Node succ : node.succs) {
+                    if (nestedTry.tryBody.contains(succ) && !tryVisited.contains(succ)) {
+                        tryBodyStmts.addAll(generateStatementsForNodeSet(succ, nestedTry.tryBody, tryVisited, 
+                                            loopHeaders, ifConditions, blockStarts, labeledBreakEdges, 
+                                            loopsNeedingLabels, currentLoop, currentBlock, switchStarts));
+                    }
+                }
+            }
+            
+            // Find the first catch node
+            Node catchStart = findCatchStartNode(nestedTry);
+            Set<Node> catchVisited = new HashSet<>();
+            List<Statement> catchBody = new ArrayList<>();
+            if (catchStart != null) {
+                catchBody = generateStatementsForNodeSet(catchStart, nestedTry.catchBody, catchVisited,
+                                            loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                                            loopsNeedingLabels, currentLoop, currentBlock, switchStarts);
+            }
+            
+            result.add(new TryStatement(tryBodyStmts, catchBody));
+            
+            // Mark all try and catch nodes as visited in the main visited set
+            visited.addAll(nestedTry.tryBody);
+            visited.addAll(nestedTry.catchBody);
+            
+            // Find the merge node and continue
+            Node tryCatchMerge = findTryCatchMergeNode(nestedTry);
+            if (tryCatchMerge != null && nodeSet.contains(tryCatchMerge) && !visited.contains(tryCatchMerge)) {
+                result.addAll(generateStatementsForNodeSet(tryCatchMerge, nodeSet, visited,
+                               loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                               loopsNeedingLabels, currentLoop, currentBlock, switchStarts, stopAt));
+            }
+            
+            return result;
+        }
         
         // Check if this is an if condition
         IfStructure ifStruct = ifConditions.get(node);
@@ -2719,10 +2825,58 @@ public class StructureDetector {
         TryStructure tryStruct = findTryStructureStartingAt(node);
         if (tryStruct != null) {
             // Generate try-catch statement
+            // Start with node already visited to prevent infinite recursion
             Set<Node> tryVisited = new HashSet<>();
-            List<Statement> tryBody = generateStatementsForNodeSet(node, tryStruct.tryBody, tryVisited, 
-                                        loopHeaders, ifConditions, blockStarts, labeledBreakEdges, 
-                                        loopsNeedingLabels, currentLoop, currentBlock, switchStarts);
+            tryVisited.add(node);
+            
+            // Build try body statements - need to handle if the start node is also an if condition
+            List<Statement> tryBodyStmts = new ArrayList<>();
+            IfStructure ifStruct = ifConditions.get(node);
+            if (ifStruct != null && tryStruct.tryBody.contains(ifStruct.trueBranch) && tryStruct.tryBody.contains(ifStruct.falseBranch)) {
+                // The start node is an if-condition with both branches in the try body
+                // Find merge node within the try body
+                Node mergeNode = ifStruct.mergeNode;
+                if (mergeNode != null && !tryStruct.tryBody.contains(mergeNode)) {
+                    mergeNode = findMergeNode(ifStruct.trueBranch, ifStruct.falseBranch);
+                    if (mergeNode != null && !tryStruct.tryBody.contains(mergeNode)) {
+                        mergeNode = null;
+                    }
+                }
+                
+                Set<Node> trueVisited = new HashSet<>(tryVisited);
+                List<Statement> onTrue = generateStatementsForNodeSet(ifStruct.trueBranch, tryStruct.tryBody, trueVisited,
+                                           loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                                           loopsNeedingLabels, currentLoop, currentBlock, switchStarts, mergeNode);
+                
+                Set<Node> falseVisited = new HashSet<>(tryVisited);
+                List<Statement> onFalse = generateStatementsForNodeSet(ifStruct.falseBranch, tryStruct.tryBody, falseVisited,
+                                           loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                                           loopsNeedingLabels, currentLoop, currentBlock, switchStarts, mergeNode);
+                
+                tryBodyStmts.add(new IfStatement(node.getLabel(), false, onTrue, onFalse));
+                
+                tryVisited.addAll(trueVisited);
+                tryVisited.addAll(falseVisited);
+                
+                // Generate code after the merge node within the try body
+                if (mergeNode != null && tryStruct.tryBody.contains(mergeNode) && !tryVisited.contains(mergeNode)) {
+                    tryBodyStmts.addAll(generateStatementsForNodeSet(mergeNode, tryStruct.tryBody, tryVisited,
+                                   loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                                   loopsNeedingLabels, currentLoop, currentBlock, switchStarts, null));
+                }
+            } else {
+                // Not an if condition or only one branch in try body - treat as regular node
+                tryBodyStmts.add(new ExpressionStatement(node.getLabel()));
+                
+                // Process successors within the try body
+                for (Node succ : node.succs) {
+                    if (tryStruct.tryBody.contains(succ) && !tryVisited.contains(succ)) {
+                        tryBodyStmts.addAll(generateStatementsForNodeSet(succ, tryStruct.tryBody, tryVisited, 
+                                            loopHeaders, ifConditions, blockStarts, labeledBreakEdges, 
+                                            loopsNeedingLabels, currentLoop, currentBlock, switchStarts));
+                    }
+                }
+            }
             
             // Find the first catch node (one without predecessors in try body)
             Node catchStart = findCatchStartNode(tryStruct);
@@ -2734,16 +2888,16 @@ public class StructureDetector {
                                             loopsNeedingLabels, currentLoop, currentBlock, switchStarts);
             }
             
-            result.add(new TryStatement(tryBody, catchBody));
+            result.add(new TryStatement(tryBodyStmts, catchBody));
             
             // Mark all try and catch nodes as visited
             visited.addAll(tryStruct.tryBody);
             visited.addAll(tryStruct.catchBody);
             
             // Find the merge node (common successor of try and catch blocks)
-            Node mergeNode = findTryCatchMergeNode(tryStruct);
-            if (mergeNode != null && !visited.contains(mergeNode)) {
-                result.addAll(generateStatements(mergeNode, visited, loopHeaders, ifConditions, 
+            Node tryCatchMerge = findTryCatchMergeNode(tryStruct);
+            if (tryCatchMerge != null && !visited.contains(tryCatchMerge)) {
+                result.addAll(generateStatements(tryCatchMerge, visited, loopHeaders, ifConditions, 
                     blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
             }
             
@@ -4450,6 +4604,29 @@ public class StructureDetector {
             "  d->catchbody2;\n" +
             "  catchbody2->end;\n" +
             "}",
+            "trybody1, a, b, trybody2 => catchbody1, c, d, catchbody2"
+        );
+
+        // Example 15: Nested Try-Catch blocks
+        System.out.println();
+        runExampleWithExceptions("Example 15: Nested Try-Catch",
+            "digraph {\n" +
+            "  start->before_try2;\n" +
+            "  before_try2->trybody1;\n" +
+            "  trybody1->a;\n" +
+            "  trybody1->b;\n" +
+            "  a->trybody2;\n" +
+            "  b->trybody2;\n" +
+            "  trybody2->after_try2;\n" +
+            "  catchbody1->c;\n" +
+            "  catchbody1->d;\n" +
+            "  c->catchbody2;\n" +
+            "  d->catchbody2;\n" +
+            "  catchbody2->after_try2;\n" +
+            "  after_try2->end;\n" +
+            "  catchbody3->end;\n" +
+            "}",
+            "before_try2, trybody1, a, b, trybody2, catchbody1, c, d, catchbody2, after_try2 => catchbody3; " +
             "trybody1, a, b, trybody2 => catchbody1, c, d, catchbody2"
         );
     }
