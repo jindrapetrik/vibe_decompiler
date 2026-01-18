@@ -4287,10 +4287,63 @@ public class StructureDetector {
     /**
      * Demonstration with example CFGs.
      */
+    /**
+     * Runs an example with the given DOT source and description.
+     * Creates a StructureDetector, analyzes it, and prints pseudocode and graphviz output.
+     * 
+     * @param description the description of the example
+     * @param dot the DOT/Graphviz source code
+     */
+    private static void runExample(String description, String dot) {
+        System.out.println("===== " + description + " =====");
+        StructureDetector detector = StructureDetector.fromGraphviz(dot);
+        detector.analyze();
+        System.out.println("\n--- Pseudocode ---");
+        System.out.println(detector.toPseudocode());
+        System.out.println("--- Graphviz/DOT ---");
+        System.out.println(detector.toGraphviz());
+    }
+    
+    /**
+     * Runs an example with the given DOT source and description, also printing detected structures.
+     * 
+     * @param description the description of the example
+     * @param dot the DOT/Graphviz source code
+     * @param printStructures if true, prints detected if, loop, and labeled block structures
+     */
+    private static void runExample(String description, String dot, boolean printStructures) {
+        System.out.println("===== " + description + " =====");
+        StructureDetector detector = StructureDetector.fromGraphviz(dot);
+        detector.analyze();
+        
+        if (printStructures) {
+            System.out.println("\n--- Detected Structures ---");
+            System.out.println("If Structures: " + detector.detectIfs().size());
+            for (IfStructure s : detector.detectIfs()) {
+                System.out.println("  " + s);
+            }
+            System.out.println("Loop Structures: " + detector.detectLoops().size());
+            for (LoopStructure s : detector.detectLoops()) {
+                System.out.println("  " + s);
+            }
+            System.out.println("Labeled Block Structures: " + detector.getLabeledBlocks().size());
+            for (LabeledBlockStructure s : detector.getLabeledBlocks()) {
+                System.out.println("  " + s);
+            }
+        }
+        
+        System.out.println("\n--- Pseudocode ---");
+        System.out.println(detector.toPseudocode());
+        System.out.println("--- Graphviz/DOT ---");
+        System.out.println(detector.toGraphviz());
+    }
+
+    /**
+     * Demonstration with example CFGs.
+     */
     public static void main(String[] args) {
         // Example 1: Simple if-else
-        System.out.println("===== Example 1: Simple If-Else =====");
-        StructureDetector detector1 = StructureDetector.fromGraphviz(
+        runExample("Example 1: Simple If-Else",
             "digraph {\n" +
             "  entry->if_cond;\n" +
             "  if_cond->then;\n" +
@@ -4300,15 +4353,10 @@ public class StructureDetector {
             "  merge->exit;\n" +
             "}"
         );
-        detector1.analyze();
-        System.out.println("\n--- Pseudocode ---");
-        System.out.println(detector1.toPseudocode());
-        System.out.println("--- Graphviz/DOT ---");
-        System.out.println(detector1.toGraphviz());
         
         // Example 2: While loop
-        System.out.println("\n===== Example 2: While Loop =====");
-        StructureDetector detector2 = StructureDetector.fromGraphviz(
+        System.out.println();
+        runExample("Example 2: While Loop",
             "digraph {\n" +
             "  entry->loop_header;\n" +
             "  loop_header->loop_body;\n" +
@@ -4316,15 +4364,10 @@ public class StructureDetector {
             "  loop_body->loop_header;\n" +
             "}"
         );
-        detector2.analyze();
-        System.out.println("\n--- Pseudocode ---");
-        System.out.println(detector2.toPseudocode());
-        System.out.println("--- Graphviz/DOT ---");
-        System.out.println(detector2.toGraphviz());
         
         // Example 3: Loop with break and continue
-        System.out.println("\n===== Example 3: Loop with Break and Continue =====");
-        StructureDetector detector3 = StructureDetector.fromGraphviz(
+        System.out.println();
+        runExample("Example 3: Loop with Break and Continue",
             "digraph {\n" +
             "  entry->loop_header;\n" +
             "  loop_header->body_1;\n" +
@@ -4338,15 +4381,10 @@ public class StructureDetector {
             "  body_3->loop_header;\n" +
             "}"
         );
-        detector3.analyze();
-        System.out.println("\n--- Pseudocode ---");
-        System.out.println(detector3.toPseudocode());
-        System.out.println("--- Graphviz/DOT ---");
-        System.out.println(detector3.toGraphviz());
         
         // Example 4: Nested loops
-        System.out.println("\n===== Example 4: Nested Loops =====");
-        StructureDetector detector4 = StructureDetector.fromGraphviz(
+        System.out.println();
+        runExample("Example 4: Nested Loops",
             "digraph {\n" +
             "  entry->outer_header;\n" +
             "  outer_header->inner_header;\n" +
@@ -4357,15 +4395,10 @@ public class StructureDetector {
             "  outer_end->outer_header;\n" +
             "}"
         );
-        detector4.analyze();
-        System.out.println("\n--- Pseudocode ---");
-        System.out.println(detector4.toPseudocode());
-        System.out.println("--- Graphviz/DOT ---");
-        System.out.println(detector4.toGraphviz());
         
         // Example 5: If inside loop
-        System.out.println("\n===== Example 5: If Inside Loop =====");
-        StructureDetector detector5 = StructureDetector.fromGraphviz(
+        System.out.println();
+        runExample("Example 5: If Inside Loop",
             "digraph {\n" +
             "  entry->loop_header;\n" +
             "  loop_header->if_cond;\n" +
@@ -4377,15 +4410,10 @@ public class StructureDetector {
             "  loop_end->loop_header;\n" +
             "}"
         );
-        detector5.analyze();
-        System.out.println("\n--- Pseudocode ---");
-        System.out.println(detector5.toPseudocode());
-        System.out.println("--- Graphviz/DOT ---");
-        System.out.println(detector5.toGraphviz());
         
         // Example 6: Chained edges (demonstrating a->b->c syntax)
-        System.out.println("\n===== Example 6: Chained Edges =====");
-        StructureDetector detector6 = StructureDetector.fromGraphviz(
+        System.out.println();
+        runExample("Example 6: Chained Edges",
             "digraph {\n" +
             "  start->if1;\n" +
             "  if1->ontrue;\n" +
@@ -4395,126 +4423,46 @@ public class StructureDetector {
             "  merge->after->exit;\n" +
             "}"
         );
-        detector6.analyze();
-        System.out.println("\n--- Pseudocode ---");
-        System.out.println(detector6.toPseudocode());
-        System.out.println("--- Graphviz/DOT ---");
-        System.out.println(detector6.toGraphviz());
         
         // Example 7: Complex nested loops with labeled breaks and returns
-        // This example includes nodes (r1, r2) with no successors that represent "return" statements.
-        // Since r1 and r2 have no successors, a labeled block at the top level is needed
-        // to properly break out of the entire structure.
-        //
-        // Expected pseudocode:
-        // entry;
-        // r_block: {
-        // loop_a_cond_loop: while(true) {
-        //   if (!loop_a_cond) {
-        //     break;
-        //   }
-        //   loop_b_cond_block {
-        //     loop_b_cond_loop: while(true) {
-        //          inner_cond_block {
-        //             if(inner_cond) {
-        //                 break inner_cond_block;                
-        //             }
-        //             if (check_e9) {
-        //                 trace_X;   
-        //                 break loop_b_cond_loop;             
-        //             }   
-        //             if (!ifr) {
-        //                 r1;
-        //                 break r_block;
-        //             }
-        //             if (check_e20) {
-        //                 trace_Y;
-        //                 break loop_b_cond_block;
-        //             }     
-        //             if (!ifr2) {
-        //                 r2;
-        //                 break r_block;
-        //             }    
-        //             if (check_e8) {
-        //                 trace_BA;
-        //                 break loop_a_cond_loop;
-        //             }
-        //             trace_Z;
-        //          }
-        //          inc_d;
-        //     }
-        //     trace_hello;
-        //   }
-        //   my_cont;
-        //   if (ternar) {
-        //     pre_inc_a;
-        //   } else {
-        //     pre_inc_b;
-        //   }
-        //   inc_c;
-        // }
-        // exit;
-        // }
-        System.out.println("\n===== Example 7: Complex Nested Loops with Labeled Breaks =====");
-        StructureDetector detector7 = StructureDetector.fromGraphviz(
+        System.out.println();
+        runExample("Example 7: Complex Nested Loops with Labeled Breaks",
             "digraph {\n" +
             "  entry->loop_a_cond;\n" +
-            // loop_a: outer for loop condition
-            "  loop_a_cond->loop_b_cond;\n" +          // c < 8 -> enter body (loop_b)
-            "  loop_a_cond->exit;\n" +                 // c >= 8 -> exit
-            // loop_b: middle for loop condition
-            "  loop_b_cond->inner_cond;\n" +           // d < 25 -> enter inner
-            "  loop_b_cond->trace_hello;\n" +          // d >= 25 -> trace_hello (after loop_b)
-            // inner: anonymous innermost for loop condition
-            "  inner_cond->check_e9;\n" +              // e < 50 -> enter body
-            "  inner_cond->inc_d;\n" +                 // e >= 50 -> d++ (exit inner normally)
-            "  trace_hello->my_cont;\n" +              // trace_hello -> my_cont
-            // if (e == 9) { trace("X"); break loop_b; }
-            "  check_e9->trace_X;\n" +                 // true -> trace_X
-            "  check_e9->ifr;\n" +                     // false -> check ifr
-            "  ifr->check_e20;\n" +                    // ifr true -> continue to check_e20
-            "  ifr->r1;\n" +                           // ifr false -> r1 (return/no successor)
-            "  trace_X->trace_hello;\n" +              // trace_X -> break loop_b (skip d++)
-            // if (e == 20) { trace("Y"); continue loop_a; }
-            "  check_e20->trace_Y;\n" +                // true -> trace_Y
-            "  check_e20->ifr2;\n" +                   // false -> check ifr2
-            "  ifr2->check_e8;\n" +                    // ifr2 true -> continue to check_e8
-            "  ifr2->r2;\n" +                          // ifr2 false -> r2 (return/no successor)
-            "  trace_Y->my_cont;\n" +                  // trace_Y -> continue loop_a (to my_cont)
-            // if (e == 8) { trace("Z"); break; } else { trace("BA"); break loop_a; }
-            "  check_e8->trace_Z;\n" +                 // true -> trace_Z
-            "  check_e8->trace_BA;\n" +                // false -> trace_BA
-            "  trace_Z->inc_d;\n" +                    // trace_Z -> break inner (d++)
-            // trace("BA"); break loop_a;
-            "  trace_BA->exit;\n" +                    // trace_BA -> break loop_a (exit)
-            // loop_b: d++ after inner loop exits normally
-            "  inc_d->loop_b_cond;\n" +                // d++ -> back to loop_b condition
-            // my_cont section (after loop_a_cont block)
-            "  my_cont->ternar;\n" +                   // my_cont -> ternar
-            "  ternar->pre_inc_a;\n" +                 // ternar true -> pre_inc_a
-            "  ternar->pre_inc_b;\n" +                 // ternar false -> pre_inc_b
-            "  pre_inc_a->inc_c;\n" +                  // pre_inc_a -> inc_c
-            "  pre_inc_b->inc_c;\n" +                  // pre_inc_b -> inc_c
-            // loop_a: c++ at end of iteration
-            "  inc_c->loop_a_cond;\n" +                // c++ -> back to loop_a condition
+            "  loop_a_cond->loop_b_cond;\n" +
+            "  loop_a_cond->exit;\n" +
+            "  loop_b_cond->inner_cond;\n" +
+            "  loop_b_cond->trace_hello;\n" +
+            "  inner_cond->check_e9;\n" +
+            "  inner_cond->inc_d;\n" +
+            "  trace_hello->my_cont;\n" +
+            "  check_e9->trace_X;\n" +
+            "  check_e9->ifr;\n" +
+            "  ifr->check_e20;\n" +
+            "  ifr->r1;\n" +
+            "  trace_X->trace_hello;\n" +
+            "  check_e20->trace_Y;\n" +
+            "  check_e20->ifr2;\n" +
+            "  ifr2->check_e8;\n" +
+            "  ifr2->r2;\n" +
+            "  trace_Y->my_cont;\n" +
+            "  check_e8->trace_Z;\n" +
+            "  check_e8->trace_BA;\n" +
+            "  trace_Z->inc_d;\n" +
+            "  trace_BA->exit;\n" +
+            "  inc_d->loop_b_cond;\n" +
+            "  my_cont->ternar;\n" +
+            "  ternar->pre_inc_a;\n" +
+            "  ternar->pre_inc_b;\n" +
+            "  pre_inc_a->inc_c;\n" +
+            "  pre_inc_b->inc_c;\n" +
+            "  inc_c->loop_a_cond;\n" +
             "}"
         );
         
-        // Labeled blocks for continue semantics are now auto-detected!
-        // No need to manually call addLabeledBlock() anymore.
-        // The nodes r1 and r2 have no successors, which should trigger
-        // creation of a top-level labeled block for breaking out of the structure.
-        
-        detector7.analyze();
-        System.out.println("\n--- Pseudocode ---");
-        System.out.println(detector7.toPseudocode());
-        System.out.println("--- Graphviz/DOT ---");
-        System.out.println(detector7.toGraphviz());
-        
         // Example 8: Do-while style loop (body first, then condition)
-        // The "body" node should appear in the pseudocode
-        System.out.println("\n===== Example 8: Do-While Style Loop =====");
-        StructureDetector detector8 = StructureDetector.fromGraphviz(
+        System.out.println();
+        runExample("Example 8: Do-While Style Loop",
             "digraph {\n" +
             "  entry->body;\n" +
             "  body->cond;\n" +
@@ -4522,17 +4470,10 @@ public class StructureDetector {
             "  cond->exit;\n" +
             "}"
         );
-        detector8.analyze();
-        System.out.println("\n--- Pseudocode ---");
-        System.out.println(detector8.toPseudocode());
-        System.out.println("--- Graphviz/DOT ---");
-        System.out.println(detector8.toGraphviz());
 
         // Example 9: Labeled block with nested if-statements
-        // ifa false branch skips to A1, ifc false branch (z) also skips to A1
-        // This pattern requires a labeled block
-        System.out.println("\n===== Example 9: Labeled Block with Nested Ifs =====");
-        StructureDetector detector9 = StructureDetector.fromGraphviz(
+        System.out.println();
+        runExample("Example 9: Labeled Block with Nested Ifs",
             "digraph {\n" +
             "  start->ifa;\n" +
             "  ifa->x;\n" +
@@ -4545,29 +4486,13 @@ public class StructureDetector {
             "  A1->d;\n" +
             "  d->A2;\n" +
             "  A2->end;\n" +
-            "}"
+            "}",
+            true
         );
-        detector9.analyze();
-        System.out.println("\n--- Detected Structures ---");
-        System.out.println("If Structures: " + detector9.detectIfs().size());
-        for (IfStructure s : detector9.detectIfs()) {
-            System.out.println("  " + s);
-        }
-        System.out.println("Labeled Block Structures: " + detector9.getLabeledBlocks().size());
-        for (LabeledBlockStructure s : detector9.getLabeledBlocks()) {
-            System.out.println("  " + s);
-        }
-        System.out.println("\n--- Pseudocode ---");
-        System.out.println(detector9.toPseudocode());
-        System.out.println("--- Graphviz/DOT ---");
-        System.out.println(detector9.toGraphviz());
 
         // Example 10: Two nested while loops with labeled blocks inside
-        // The expected pseudocode should have:
-        // - start2_loop with two labeled blocks (ifex2_block and ifex3_block)
-        // - Nodes should NOT be duplicated in the code
-        System.out.println("\n===== Example 10: Nested Ifs with While Loop =====");
-        StructureDetector detector10 = StructureDetector.fromGraphviz(
+        System.out.println();
+        runExample("Example 10: Nested Ifs with While Loop",
             "digraph {\n" +
             "  start->ifa;\n" +
             "  ifa->x;\n" +
@@ -4606,25 +4531,8 @@ public class StructureDetector {
             "  A13->d3;\n" +
             "  d3->A23;\n" +
             "  A23->start2;\n" +
-            "}"
+            "}",
+            true
         );
-        detector10.analyze();
-        System.out.println("\n--- Detected Structures ---");
-        System.out.println("If Structures: " + detector10.detectIfs().size());
-        for (IfStructure s : detector10.detectIfs()) {
-            System.out.println("  " + s);
-        }
-        System.out.println("Loop Structures: " + detector10.detectLoops().size());
-        for (LoopStructure s : detector10.detectLoops()) {
-            System.out.println("  " + s);
-        }
-        System.out.println("Labeled Block Structures: " + detector10.getLabeledBlocks().size());
-        for (LabeledBlockStructure s : detector10.getLabeledBlocks()) {
-            System.out.println("  " + s);
-        }
-        System.out.println("\n--- Pseudocode ---");
-        System.out.println(detector10.toPseudocode());
-        System.out.println("--- Graphviz/DOT ---");
-        System.out.println(detector10.toGraphviz());
     }
 }
