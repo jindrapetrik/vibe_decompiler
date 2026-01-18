@@ -11,18 +11,20 @@ public class BreakStatement extends Statement {
     private final int labelId;
     
     /**
-     * Creates a new unlabeled break statement.
+     * Creates a new break statement.
+     * 
+     * @param labelId the global ID of the target block/loop
      */
-    public BreakStatement() {
+    public BreakStatement(int labelId) {
         this.label = null;
-        this.labelId = -1;
+        this.labelId = labelId;
     }
     
     /**
-     * Creates a new labeled break statement.
+     * Creates a new break statement with a label.
      * 
      * @param label the label to break to (can be null for unlabeled break)
-     * @param labelId the global ID of the target block/loop (-1 if unlabeled)
+     * @param labelId the global ID of the target block/loop
      */
     public BreakStatement(String label, int labelId) {
         this.label = label;
@@ -41,7 +43,7 @@ public class BreakStatement extends Statement {
     /**
      * Gets the global ID of the target block/loop.
      * 
-     * @return the global ID, or -1 if unlabeled
+     * @return the global ID
      */
     public int getLabelId() {
         return labelId;
