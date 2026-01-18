@@ -970,6 +970,21 @@ public class StructureDetector {
                     effectiveMerge = convergence != null ? convergence : mergeNode;
                 }
                 
+                // If the effective merge is the loop header, this is a continue pattern, not a skip.
+                // We don't need a labeled block - we can use simple continue statements.
+                if (effectiveMerge.equals(loop.header)) {
+                    continue;
+                }
+                
+                // If one branch goes directly to the loop header (a continue), and the other branch
+                // eventually leads to a back-edge source (which also continues the loop), this is
+                // a simple if-continue pattern, not a skip that needs a labeled block.
+                // Example: if (cond) { body_3; } // where body_3 -> loop_header (back edge)
+                //          else { continue; }    // direct jump to loop_header
+                if (trueBranch.equals(loop.header) || falseBranch.equals(loop.header)) {
+                    continue;
+                }
+                
                 // If one branch goes directly to the merge, create a block
                 // This handles patterns like: if (cond) { complex_body } else { goto merge }
                 // In this case, cond itself is the skip source - when the condition's false branch
