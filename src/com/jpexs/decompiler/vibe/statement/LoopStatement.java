@@ -11,26 +11,31 @@ import java.util.List;
 public class LoopStatement extends Statement {
     
     private final String label;
+    private final int labelId;
     private final List<Statement> body;
     
     /**
-     * Creates a new unlabeled while(true) loop.
+     * Creates a new while(true) loop.
      * 
+     * @param labelId the global ID of the loop
      * @param body the loop body statements
      */
-    public LoopStatement(List<Statement> body) {
+    public LoopStatement(int labelId, List<Statement> body) {
         this.label = null;
+        this.labelId = labelId;
         this.body = body != null ? new ArrayList<>(body) : new ArrayList<>();
     }
     
     /**
-     * Creates a new labeled while(true) loop.
+     * Creates a new while(true) loop with an optional label.
      * 
      * @param label the loop label (can be null for unlabeled loop)
+     * @param labelId the global ID of the loop
      * @param body the loop body statements
      */
-    public LoopStatement(String label, List<Statement> body) {
+    public LoopStatement(String label, int labelId, List<Statement> body) {
         this.label = label;
+        this.labelId = labelId;
         this.body = body != null ? new ArrayList<>(body) : new ArrayList<>();
     }
     
@@ -41,6 +46,15 @@ public class LoopStatement extends Statement {
      */
     public String getLabel() {
         return label;
+    }
+    
+    /**
+     * Gets the global ID of the loop.
+     * 
+     * @return the global ID
+     */
+    public int getLabelId() {
+        return labelId;
     }
     
     /**

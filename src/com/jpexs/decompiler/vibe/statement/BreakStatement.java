@@ -8,21 +8,27 @@ package com.jpexs.decompiler.vibe.statement;
 public class BreakStatement extends Statement {
     
     private final String label;
+    private final int labelId;
     
     /**
-     * Creates a new unlabeled break statement.
+     * Creates a new break statement.
+     * 
+     * @param labelId the global ID of the target block/loop
      */
-    public BreakStatement() {
+    public BreakStatement(int labelId) {
         this.label = null;
+        this.labelId = labelId;
     }
     
     /**
-     * Creates a new labeled break statement.
+     * Creates a new break statement with a label.
      * 
      * @param label the label to break to (can be null for unlabeled break)
+     * @param labelId the global ID of the target block/loop
      */
-    public BreakStatement(String label) {
+    public BreakStatement(String label, int labelId) {
         this.label = label;
+        this.labelId = labelId;
     }
     
     /**
@@ -32,6 +38,15 @@ public class BreakStatement extends Statement {
      */
     public String getLabel() {
         return label;
+    }
+    
+    /**
+     * Gets the global ID of the target block/loop.
+     * 
+     * @return the global ID
+     */
+    public int getLabelId() {
+        return labelId;
     }
     
     /**

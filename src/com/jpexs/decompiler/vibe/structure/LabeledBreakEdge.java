@@ -9,11 +9,13 @@ public class LabeledBreakEdge {
     public final Node from;
     public final Node to;
     public final String label;
+    public final int labelId;
 
-    public LabeledBreakEdge(Node from, Node to, String label) {
+    public LabeledBreakEdge(Node from, Node to, String label, int labelId) {
         this.from = from;
         this.to = to;
         this.label = label;
+        this.labelId = labelId;
     }
 
     @Override

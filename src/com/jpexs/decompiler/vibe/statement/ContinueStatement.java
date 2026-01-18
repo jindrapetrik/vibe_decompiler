@@ -8,21 +8,27 @@ package com.jpexs.decompiler.vibe.statement;
 public class ContinueStatement extends Statement {
     
     private final String label;
+    private final int labelId;
     
     /**
-     * Creates a new unlabeled continue statement.
+     * Creates a new continue statement.
+     * 
+     * @param labelId the global ID of the target loop
      */
-    public ContinueStatement() {
+    public ContinueStatement(int labelId) {
         this.label = null;
+        this.labelId = labelId;
     }
     
     /**
-     * Creates a new labeled continue statement.
+     * Creates a new continue statement with a label.
      * 
      * @param label the label to continue to (can be null for unlabeled continue)
+     * @param labelId the global ID of the target loop
      */
-    public ContinueStatement(String label) {
+    public ContinueStatement(String label, int labelId) {
         this.label = label;
+        this.labelId = labelId;
     }
     
     /**
@@ -32,6 +38,15 @@ public class ContinueStatement extends Statement {
      */
     public String getLabel() {
         return label;
+    }
+    
+    /**
+     * Gets the global ID of the target loop.
+     * 
+     * @return the global ID
+     */
+    public int getLabelId() {
+        return labelId;
     }
     
     /**

@@ -12,16 +12,19 @@ import java.util.List;
 public class BlockStatement extends Statement {
     
     private final String label;
+    private final int labelId;
     private final List<Statement> body;
     
     /**
      * Creates a new labeled block statement.
      * 
      * @param label the block label
+     * @param labelId the global ID of the block
      * @param body the block body statements
      */
-    public BlockStatement(String label, List<Statement> body) {
+    public BlockStatement(String label, int labelId, List<Statement> body) {
         this.label = label;
+        this.labelId = labelId;
         this.body = body != null ? new ArrayList<>(body) : new ArrayList<>();
     }
     
@@ -32,6 +35,15 @@ public class BlockStatement extends Statement {
      */
     public String getLabel() {
         return label;
+    }
+    
+    /**
+     * Gets the global ID of the block.
+     * 
+     * @return the global ID
+     */
+    public int getLabelId() {
+        return labelId;
     }
     
     /**

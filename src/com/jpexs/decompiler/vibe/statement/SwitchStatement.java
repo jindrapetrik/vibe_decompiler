@@ -71,14 +71,16 @@ public class SwitchStatement extends Statement {
     
     private final List<Case> cases;
     private final String label;
+    private final int labelId;
     
     /**
-     * Creates a new switch statement without a label.
+     * Creates a new switch statement.
      * 
      * @param cases the list of cases (including default)
+     * @param labelId the global ID of the switch
      */
-    public SwitchStatement(List<Case> cases) {
-        this(cases, null);
+    public SwitchStatement(List<Case> cases, int labelId) {
+        this(cases, null, labelId);
     }
     
     /**
@@ -86,10 +88,12 @@ public class SwitchStatement extends Statement {
      * 
      * @param cases the list of cases (including default)
      * @param label the label for the switch (e.g., "loop1"), or null for no label
+     * @param labelId the global ID of the switch
      */
-    public SwitchStatement(List<Case> cases, String label) {
+    public SwitchStatement(List<Case> cases, String label, int labelId) {
         this.cases = cases != null ? new ArrayList<>(cases) : new ArrayList<>();
         this.label = label;
+        this.labelId = labelId;
     }
     
     /**
@@ -108,6 +112,15 @@ public class SwitchStatement extends Statement {
      */
     public String getLabel() {
         return label;
+    }
+    
+    /**
+     * Gets the global ID of the switch.
+     * 
+     * @return the global ID
+     */
+    public int getLabelId() {
+        return labelId;
     }
     
     @Override
