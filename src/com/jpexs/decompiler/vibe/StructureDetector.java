@@ -4147,6 +4147,11 @@ public class StructureDetector {
                 continue;
             }
             
+            // Skip if this condition is not a strict equals (===) - required for switch pattern
+            if (!dialect.isStrictEqualsIf(startCond)) {
+                continue;
+            }
+            
             // Check if this node's FALSE branch leads to another condition (switch pattern)
             // In a switch pattern: true branch -> case body, false branch -> next condition
             if (!conditionNodes.contains(ifStruct.falseBranch)) {
@@ -4163,6 +4168,13 @@ public class StructureDetector {
             while (currentCond != null && !processedNodes.contains(currentCond)) {
                 // Prevent cycles - check if we've already added this condition in this chain
                 if (conditionChain.contains(currentCond)) {
+                    break;
+                }
+                
+                // Only include conditions that are strict equals (===) in the switch
+                if (!dialect.isStrictEqualsIf(currentCond)) {
+                    // This condition is not a strict equals - treat the rest as default body
+                    defaultBody = currentCond;
                     break;
                 }
                 
