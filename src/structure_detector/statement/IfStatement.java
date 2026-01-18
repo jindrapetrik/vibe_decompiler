@@ -1,5 +1,6 @@
 package structure_detector.statement;
 
+import structure_detector.Node;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -10,7 +11,7 @@ import java.util.List;
  */
 public class IfStatement extends Statement {
     
-    private final String condition;
+    private final Node conditionNode;
     private final boolean negated;
     private final List<Statement> onTrue;
     private final List<Statement> onFalse;
@@ -18,12 +19,12 @@ public class IfStatement extends Statement {
     /**
      * Creates a new if statement without else branch.
      * 
-     * @param condition the condition expression
+     * @param conditionNode the condition node
      * @param negated whether the condition is negated (produces "if (!condition)")
      * @param onTrue the statements to execute when condition is true
      */
-    public IfStatement(String condition, boolean negated, List<Statement> onTrue) {
-        this.condition = condition;
+    public IfStatement(Node conditionNode, boolean negated, List<Statement> onTrue) {
+        this.conditionNode = conditionNode;
         this.negated = negated;
         this.onTrue = onTrue != null ? new ArrayList<>(onTrue) : new ArrayList<>();
         this.onFalse = new ArrayList<>();
@@ -32,25 +33,34 @@ public class IfStatement extends Statement {
     /**
      * Creates a new if-else statement.
      * 
-     * @param condition the condition expression
+     * @param conditionNode the condition node
      * @param negated whether the condition is negated (produces "if (!condition)")
      * @param onTrue the statements to execute when condition is true
      * @param onFalse the statements to execute when condition is false
      */
-    public IfStatement(String condition, boolean negated, List<Statement> onTrue, List<Statement> onFalse) {
-        this.condition = condition;
+    public IfStatement(Node conditionNode, boolean negated, List<Statement> onTrue, List<Statement> onFalse) {
+        this.conditionNode = conditionNode;
         this.negated = negated;
         this.onTrue = onTrue != null ? new ArrayList<>(onTrue) : new ArrayList<>();
         this.onFalse = onFalse != null ? new ArrayList<>(onFalse) : new ArrayList<>();
     }
     
     /**
-     * Gets the condition expression.
+     * Gets the condition node.
+     * 
+     * @return the condition node
+     */
+    public Node getConditionNode() {
+        return conditionNode;
+    }
+    
+    /**
+     * Gets the condition expression (node label).
      * 
      * @return the condition expression
      */
     public String getCondition() {
-        return condition;
+        return conditionNode.getLabel();
     }
     
     /**
@@ -99,6 +109,7 @@ public class IfStatement extends Statement {
         StringBuilder sb = new StringBuilder();
         
         // Generate if condition
+        String condition = conditionNode.getLabel();
         if (negated) {
             sb.append(indent).append("if (!").append(condition).append(") {\n");
         } else {

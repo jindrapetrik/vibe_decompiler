@@ -2279,7 +2279,7 @@ public class StructureDetector {
         // If there's a return block, wrap output in it
         if (returnBlock != null) {
             // Output entry node first
-            result.add(new ExpressionStatement(entryNode.getLabel()));
+            result.add(new ExpressionStatement(entryNode));
             visited.add(entryNode);
             
             // Generate the rest of the code inside the block
@@ -2680,7 +2680,7 @@ public class StructureDetector {
                                        loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
                                        loopsNeedingLabels, currentLoop, currentBlock, switchStarts, mergeNode);
             
-            tryBodyStmts.add(new IfStatement(startNode.getLabel(), false, onTrue, onFalse));
+            tryBodyStmts.add(new IfStatement(startNode, false, onTrue, onFalse));
             
             tryVisited.addAll(trueVisited);
             tryVisited.addAll(falseVisited);
@@ -2693,7 +2693,7 @@ public class StructureDetector {
             }
         } else {
             // Not an if condition or only one branch in try body - treat as regular node
-            tryBodyStmts.add(new ExpressionStatement(startNode.getLabel()));
+            tryBodyStmts.add(new ExpressionStatement(startNode));
             
             // Process successors within the try body
             for (Node succ : startNode.succs) {
@@ -2744,7 +2744,7 @@ public class StructureDetector {
             List<Statement> whileBody = new ArrayList<>();
             List<Statement> breakBody = new ArrayList<>();
             breakBody.add(new BreakStatement());
-            whileBody.add(new IfStatement(startNode.getLabel(), false, breakBody));
+            whileBody.add(new IfStatement(startNode, false, breakBody));
             result.add(new LoopStatement(null, whileBody));
             
             // Continue with the exit node
@@ -2778,7 +2778,7 @@ public class StructureDetector {
                 } else if (trueIsContinue) {
                     trueBody.add(new ContinueStatement());
                 }
-                result.add(new IfStatement(startNode.getLabel(), false, trueBody));
+                result.add(new IfStatement(startNode, false, trueBody));
                 
                 // Process false branch (the rest of catch body or exit)
                 if (falseInCatch && !visited.contains(falseSucc)) {
@@ -2799,7 +2799,7 @@ public class StructureDetector {
                 } else if (falseIsContinue) {
                     falseBody.add(new ContinueStatement());
                 }
-                result.add(new IfStatement(startNode.getLabel(), true, falseBody));  // negated condition
+                result.add(new IfStatement(startNode, true, falseBody));  // negated condition
                 
                 // Process true branch (the rest of catch body)
                 if (!visited.contains(trueSucc)) {
@@ -2830,9 +2830,9 @@ public class StructureDetector {
                     List<Statement> whileBody = new ArrayList<>();
                     List<Statement> breakBody = new ArrayList<>();
                     breakBody.add(new BreakStatement());
-                    whileBody.add(new IfStatement(trueSucc.getLabel(), false, breakBody));
+                    whileBody.add(new IfStatement(trueSucc, false, breakBody));
                     ifBody.add(new LoopStatement(null, whileBody));
-                    result.add(new IfStatement(startNode.getLabel(), false, ifBody));
+                    result.add(new IfStatement(startNode, false, ifBody));
                     
                     // Mark the loop header as visited
                     visited.add(trueSucc);
@@ -2867,9 +2867,9 @@ public class StructureDetector {
                     List<Statement> whileBody = new ArrayList<>();
                     List<Statement> breakBody = new ArrayList<>();
                     breakBody.add(new BreakStatement());
-                    whileBody.add(new IfStatement(falseSucc.getLabel(), false, breakBody));
+                    whileBody.add(new IfStatement(falseSucc, false, breakBody));
                     ifBody.add(new LoopStatement(null, whileBody));
-                    result.add(new IfStatement(startNode.getLabel(), true, ifBody));  // negated
+                    result.add(new IfStatement(startNode, true, ifBody));  // negated
                     
                     // Mark the loop header as visited
                     visited.add(falseSucc);
@@ -2891,7 +2891,7 @@ public class StructureDetector {
         }
         
         // Default: output the statement
-        result.add(new ExpressionStatement(startNode.getLabel()));
+        result.add(new ExpressionStatement(startNode));
         
         // Check successors
         for (Node succ : startNode.succs) {
@@ -3026,7 +3026,7 @@ public class StructureDetector {
                                            loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
                                            loopsNeedingLabels, currentLoop, currentBlock, switchStarts, mergeNode);
                 
-                result.add(new IfStatement(node.getLabel(), false, onTrue, onFalse));
+                result.add(new IfStatement(node, false, onTrue, onFalse));
                 
                 visited.addAll(trueVisited);
                 visited.addAll(falseVisited);
@@ -3039,26 +3039,26 @@ public class StructureDetector {
                 }
             } else if (trueInSet) {
                 // Only true branch is in set
-                result.add(new ExpressionStatement(node.getLabel()));
+                result.add(new ExpressionStatement(node));
                 result.addAll(generateStatementsForNodeSet(ifStruct.trueBranch, nodeSet, visited,
                                loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
                                loopsNeedingLabels, currentLoop, currentBlock, switchStarts, stopAt));
             } else if (falseInSet) {
                 // Only false branch is in set
-                result.add(new ExpressionStatement(node.getLabel()));
+                result.add(new ExpressionStatement(node));
                 result.addAll(generateStatementsForNodeSet(ifStruct.falseBranch, nodeSet, visited,
                                loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
                                loopsNeedingLabels, currentLoop, currentBlock, switchStarts, stopAt));
             } else {
                 // Neither branch in set - just output node
-                result.add(new ExpressionStatement(node.getLabel()));
+                result.add(new ExpressionStatement(node));
             }
             
             return result;
         }
         
         // Regular node
-        result.add(new ExpressionStatement(node.getLabel()));
+        result.add(new ExpressionStatement(node));
         
         // Continue with successors that are in the set
         for (Node succ : node.succs) {
@@ -3363,7 +3363,7 @@ public class StructureDetector {
                     onFalse.add(new BreakStatement(labeledBreak.label));
                 }
                 
-                result.add(new IfStatement(node.getLabel(), false, onTrue, onFalse));
+                result.add(new IfStatement(node, false, onTrue, onFalse));
                 return result;
             }
         }
@@ -3393,10 +3393,10 @@ public class StructureDetector {
                 boolean exitOnTrueBranch = node.succs.get(0).equals(loopExit);
                 // If exit is on true branch, condition is NOT negated: if (cond) { break; }
                 // If exit is on false branch, condition IS negated: if (!cond) { break; }
-                loopBody.add(new IfStatement(node.getLabel(), !exitOnTrueBranch, breakBody));
+                loopBody.add(new IfStatement(node, !exitOnTrueBranch, breakBody));
             } else if (node.succs.size() == 1) {
                 // Do-while style: header has only 1 successor, output the header as a statement
-                loopBody.add(new ExpressionStatement(node.getLabel()));
+                loopBody.add(new ExpressionStatement(node));
             }
             
             // Generate body of the loop
@@ -3428,7 +3428,7 @@ public class StructureDetector {
                 // Negate condition: if (cond) {} else { X } -> if (!cond) { X }
                 Set<Node> falseVisited = new HashSet<>(visited);
                 List<Statement> onTrue = generateStatements(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
-                result.add(new IfStatement(node.getLabel(), true, onTrue));
+                result.add(new IfStatement(node, true, onTrue));
                 
                 if (ifStruct.mergeNode != null) {
                     visited.addAll(falseVisited);
@@ -3444,7 +3444,7 @@ public class StructureDetector {
             Set<Node> falseVisited = new HashSet<>(visited);
             List<Statement> onFalse = generateStatements(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
             
-            result.add(new IfStatement(node.getLabel(), false, onTrue, onFalse));
+            result.add(new IfStatement(node, false, onTrue, onFalse));
             
             // Continue after merge
             if (ifStruct.mergeNode != null) {
@@ -3456,7 +3456,7 @@ public class StructureDetector {
         }
         
         // Regular node - just output it
-        result.add(new ExpressionStatement(node.getLabel()));
+        result.add(new ExpressionStatement(node));
         
         // Continue with successors
         for (Node succ : node.succs) {
@@ -3649,7 +3649,7 @@ public class StructureDetector {
             if (loopExit != null && node.succs.size() == 2) {
                 List<Statement> breakBody = new ArrayList<>();
                 breakBody.add(new BreakStatement());
-                loopBody.add(new IfStatement(node.getLabel(), true, breakBody));
+                loopBody.add(new IfStatement(node, true, breakBody));
             }
             
             if (loopContinue != null) {
@@ -3686,7 +3686,7 @@ public class StructureDetector {
                     // B) True branch is break - output break first with condition, then flatten false branch
                     List<Statement> breakBody = new ArrayList<>();
                     breakBody.add(new BreakStatement(labeledBreak.label));
-                    result.add(new IfStatement(node.getLabel(), false, breakBody));
+                    result.add(new IfStatement(node, false, breakBody));
                     
                     Set<Node> elseVisited = new HashSet<>(visited);
                     elseVisited.add(node);
@@ -3700,7 +3700,7 @@ public class StructureDetector {
                     // A) False branch is break - negate condition and flatten
                     List<Statement> breakBody = new ArrayList<>();
                     breakBody.add(new BreakStatement(labeledBreak.label));
-                    result.add(new IfStatement(node.getLabel(), true, breakBody));
+                    result.add(new IfStatement(node, true, breakBody));
                     
                     Set<Node> thenVisited = new HashSet<>(visited);
                     thenVisited.add(node);
@@ -3732,7 +3732,7 @@ public class StructureDetector {
                         onFalse.addAll(generateStatementsInLoop(ifStruct.falseBranch, elseVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
                     }
                     
-                    result.add(new IfStatement(node.getLabel(), false, onTrue, onFalse));
+                    result.add(new IfStatement(node, false, onTrue, onFalse));
                 }
                 return result;
             }
@@ -3757,7 +3757,7 @@ public class StructureDetector {
                     if (trueBranchIsLoopHeader && falseBranchTarget != null) {
                         List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                         List<Statement> breakBody = outputPathAndBreakStatements(falsePath, falseBranchTarget.breakLabel, currentLoop, currentBlock, falseBranchTarget.target);
-                        result.add(new IfStatement(node.getLabel(), true, breakBody));
+                        result.add(new IfStatement(node, true, breakBody));
                         return result;
                     }
                     
@@ -3765,7 +3765,7 @@ public class StructureDetector {
                     if (falseBranchIsLoopHeader && trueBranchTarget != null) {
                         List<Node> path = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
                         List<Statement> breakBody = outputPathAndBreakStatements(path, trueBranchTarget.breakLabel, currentLoop, currentBlock, trueBranchTarget.target);
-                        result.add(new IfStatement(node.getLabel(), false, breakBody));
+                        result.add(new IfStatement(node, false, breakBody));
                         return result;
                     }
                     
@@ -3774,11 +3774,11 @@ public class StructureDetector {
                         falseBranchTarget != null && !falseBranchTarget.isLabeledBlockBreak) {
                         List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                         List<Statement> breakBody = outputPathAndBreakStatements(falsePath, falseBranchTarget.breakLabel, currentLoop, currentBlock, falseBranchTarget.target);
-                        result.add(new IfStatement(node.getLabel(), true, breakBody));
+                        result.add(new IfStatement(node, true, breakBody));
                         // Continue with true branch content at same indent level (flattened), without the final break
                         List<Node> truePath = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
                         for (Node n : truePath) {
-                            result.add(new ExpressionStatement(n.getLabel()));
+                            result.add(new ExpressionStatement(n));
                         }
                         return result;
                     }
@@ -3793,7 +3793,7 @@ public class StructureDetector {
                             breakLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
                         }
                         List<Statement> breakBody = outputPathAndBreakStatements(path, breakLabel, currentLoop, currentBlock, trueBranchTarget.target);
-                        result.add(new IfStatement(node.getLabel(), false, breakBody));
+                        result.add(new IfStatement(node, false, breakBody));
                         
                         // Continue with false branch at same indent level (flattened)
                         if (falseBranchTarget != null) {
@@ -3802,7 +3802,7 @@ public class StructureDetector {
                                 // Don't output break - it's handled by switch case
                                 List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                                 for (Node n : falsePath) {
-                                    result.add(new ExpressionStatement(n.getLabel()));
+                                    result.add(new ExpressionStatement(n));
                                 }
                             } else {
                                 // Use loop break label when target is outside the loop
@@ -3825,7 +3825,7 @@ public class StructureDetector {
                     if (trueBranchTarget != null && trueBranchTarget.isContinue) {
                         List<Node> path = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
                         List<Statement> continueBody = outputPathAndContinueStatements(path, trueBranchTarget.breakLabel);
-                        result.add(new IfStatement(node.getLabel(), false, continueBody));
+                        result.add(new IfStatement(node, false, continueBody));
                         
                         // Continue with false branch at same indent level (flattened)
                         if (falseBranchTarget != null && !falseBranchTarget.isContinue) {
@@ -3833,7 +3833,7 @@ public class StructureDetector {
                             if (stopAt != null && falseBranchTarget.target.equals(stopAt)) {
                                 List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                                 for (Node n : falsePath) {
-                                    result.add(new ExpressionStatement(n.getLabel()));
+                                    result.add(new ExpressionStatement(n));
                                 }
                             } else {
                                 List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
@@ -3851,7 +3851,7 @@ public class StructureDetector {
                     if (falseBranchTarget != null) {
                         List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                         List<Statement> breakBody = outputPathAndBreakStatements(falsePath, falseBranchTarget.breakLabel, currentLoop, currentBlock, falseBranchTarget.target);
-                        result.add(new IfStatement(node.getLabel(), true, breakBody));
+                        result.add(new IfStatement(node, true, breakBody));
                         // Continue with true branch at same indent level (flattened)
                         Set<Node> thenVisited = new HashSet<>(visited);
                         thenVisited.add(node);
@@ -3866,7 +3866,7 @@ public class StructureDetector {
                         String loopLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
                         breakBody.add(new BreakStatement(loopLabel));
                         // Output if with break, negate condition so break is on false branch (flatten else)
-                        result.add(new IfStatement(node.getLabel(), true, breakBody));
+                        result.add(new IfStatement(node, true, breakBody));
                         // Continue with false branch flattened (at same level, not in else block)
                         Set<Node> elseVisited = new HashSet<>(visited);
                         elseVisited.add(node);
@@ -3877,7 +3877,7 @@ public class StructureDetector {
                         String loopLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
                         breakBody.add(new BreakStatement(loopLabel));
                         // Output if with break (don't negate - break is on false branch)
-                        result.add(new IfStatement(node.getLabel(), false, breakBody));
+                        result.add(new IfStatement(node, false, breakBody));
                         // Continue with true branch flattened (at same level, not in else block)
                         Set<Node> thenVisited = new HashSet<>(visited);
                         thenVisited.add(node);
@@ -3898,7 +3898,7 @@ public class StructureDetector {
                         // True branch is continue
                         List<Statement> continueBody = new ArrayList<>();
                         continueBody.add(new ContinueStatement());
-                        result.add(new IfStatement(node.getLabel(), false, continueBody));
+                        result.add(new IfStatement(node, false, continueBody));
                         // Continue with false branch flattened
                         Set<Node> elseVisited = new HashSet<>(visited);
                         elseVisited.add(node);
@@ -3907,7 +3907,7 @@ public class StructureDetector {
                         // False branch is continue - negate condition
                         List<Statement> continueBody = new ArrayList<>();
                         continueBody.add(new ContinueStatement());
-                        result.add(new IfStatement(node.getLabel(), true, continueBody));
+                        result.add(new IfStatement(node, true, continueBody));
                         // Continue with true branch flattened
                         Set<Node> thenVisited = new HashSet<>(visited);
                         thenVisited.add(node);
@@ -3942,7 +3942,7 @@ public class StructureDetector {
                     Set<Node> falseVisited = new HashSet<>(visited);
                     onTrue.addAll(generateStatementsInLoop(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts));
                 }
-                result.add(new IfStatement(node.getLabel(), true, onTrue));
+                result.add(new IfStatement(node, true, onTrue));
                 
                 if (ifStruct.mergeNode != null && currentLoop.body.contains(ifStruct.mergeNode)) {
                     Set<Node> mergeVisited = new HashSet<>(visited);
@@ -3960,9 +3960,9 @@ public class StructureDetector {
                     List<Node> truePath = findPathToNode(ifStruct.trueBranch, ifStruct.falseBranch, ifConditions, currentLoop);
                     List<Statement> onTrue = new ArrayList<>();
                     for (Node n : truePath) {
-                        onTrue.add(new ExpressionStatement(n.getLabel()));
+                        onTrue.add(new ExpressionStatement(n));
                     }
-                    result.add(new IfStatement(node.getLabel(), false, onTrue));
+                    result.add(new IfStatement(node, false, onTrue));
                     List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                     result.addAll(outputPathAndBreakStatements(falsePath, falseBranchTarget.breakLabel, currentLoop, currentBlock, falseBranchTarget.target));
                     return result;
@@ -3972,10 +3972,10 @@ public class StructureDetector {
                 if (trueBranchTarget.isLabeledBlockBreak && falseBranchTarget != null && !falseBranchTarget.isLabeledBlockBreak) {
                     List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                     List<Statement> breakBody = outputPathAndBreakStatements(falsePath, falseBranchTarget.breakLabel, currentLoop, currentBlock, falseBranchTarget.target);
-                    result.add(new IfStatement(node.getLabel(), true, breakBody));
+                    result.add(new IfStatement(node, true, breakBody));
                     List<Node> truePath = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
                     for (Node n : truePath) {
-                        result.add(new ExpressionStatement(n.getLabel()));
+                        result.add(new ExpressionStatement(n));
                     }
                     return result;
                 }
@@ -3984,20 +3984,20 @@ public class StructureDetector {
                 if (trueBranchTarget.isContinue) {
                     List<Node> path = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
                     List<Statement> continueBody = outputPathAndContinueStatements(path, trueBranchTarget.breakLabel);
-                    result.add(new IfStatement(node.getLabel(), false, continueBody));
+                    result.add(new IfStatement(node, false, continueBody));
                     
                     // Continue with false branch flattened
                     if (stopAt != null && (ifStruct.falseBranch.equals(stopAt) || isReachableWithinLoop(ifStruct.falseBranch, stopAt, currentLoop))) {
                         List<Node> pathToStop = findPathToNode(ifStruct.falseBranch, stopAt, ifConditions, currentLoop);
                         for (Node n : pathToStop) {
-                            result.add(new ExpressionStatement(n.getLabel()));
+                            result.add(new ExpressionStatement(n));
                         }
                     } else if (falseBranchTarget != null && !falseBranchTarget.isContinue) {
                         // Check if false branch target is the stopAt node (switch merge) - just output path, no break
                         if (stopAt != null && falseBranchTarget.target.equals(stopAt)) {
                             List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                             for (Node n : falsePath) {
-                                result.add(new ExpressionStatement(n.getLabel()));
+                                result.add(new ExpressionStatement(n));
                             }
                         } else {
                             List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
@@ -4012,20 +4012,20 @@ public class StructureDetector {
                 
                 List<Node> path = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
                 List<Statement> breakBody = outputPathAndBreakStatements(path, trueBranchTarget.breakLabel, currentLoop, currentBlock, trueBranchTarget.target);
-                result.add(new IfStatement(node.getLabel(), false, breakBody));
+                result.add(new IfStatement(node, false, breakBody));
                 
                 // Continue with false branch
                 if (stopAt != null && (ifStruct.falseBranch.equals(stopAt) || isReachableWithinLoop(ifStruct.falseBranch, stopAt, currentLoop))) {
                     List<Node> pathToStop = findPathToNode(ifStruct.falseBranch, stopAt, ifConditions, currentLoop);
                     for (Node n : pathToStop) {
-                        result.add(new ExpressionStatement(n.getLabel()));
+                        result.add(new ExpressionStatement(n));
                     }
                 } else if (falseBranchTarget != null) {
                     List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                     if (falseBranchTarget.isLabeledBlockBreak && currentBlock != null && 
                         falseBranchTarget.target.equals(currentBlock.endNode)) {
                         for (Node n : falsePath) {
-                            result.add(new ExpressionStatement(n.getLabel()));
+                            result.add(new ExpressionStatement(n));
                         }
                     } else {
                         result.addAll(outputPathAndBreakStatements(falsePath, falseBranchTarget.breakLabel, currentLoop, currentBlock, falseBranchTarget.target));
@@ -4046,12 +4046,12 @@ public class StructureDetector {
                 isReachableWithinLoop(ifStruct.trueBranch, ifStruct.falseBranch, currentLoop)) {
                 Set<Node> trueVisited = new HashSet<>(visited);
                 List<Statement> onTrue = generateStatementsInLoop(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.falseBranch, switchStarts);
-                result.add(new IfStatement(node.getLabel(), false, onTrue));
+                result.add(new IfStatement(node, false, onTrue));
                 List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                 if (falseBranchTarget.isLabeledBlockBreak && currentBlock != null && 
                     falseBranchTarget.target.equals(currentBlock.endNode)) {
                     for (Node n : falsePath) {
-                        result.add(new ExpressionStatement(n.getLabel()));
+                        result.add(new ExpressionStatement(n));
                     }
                 } else {
                     result.addAll(outputPathAndBreakStatements(falsePath, falseBranchTarget.breakLabel, currentLoop, currentBlock, falseBranchTarget.target));
@@ -4072,7 +4072,7 @@ public class StructureDetector {
                 onFalse.addAll(generateStatementsInLoop(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts));
             }
             
-            result.add(new IfStatement(node.getLabel(), false, onTrue, onFalse));
+            result.add(new IfStatement(node, false, onTrue, onFalse));
             
             if (ifStruct.mergeNode != null && currentLoop.body.contains(ifStruct.mergeNode)) {
                 Set<Node> mergeVisited = new HashSet<>(visited);
@@ -4082,7 +4082,7 @@ public class StructureDetector {
         }
         
         // Regular node
-        result.add(new ExpressionStatement(node.getLabel()));
+        result.add(new ExpressionStatement(node));
         
         // Continue with successors inside the loop
         for (Node succ : node.succs) {
@@ -4115,7 +4115,7 @@ public class StructureDetector {
         if (targetLoop != null) {
             result.add(new BreakStatement(getLoopLabel(targetLoop.header)));
         } else {
-            result.add(new ExpressionStatement(node.getLabel()));
+            result.add(new ExpressionStatement(node));
         }
         
         return result;
@@ -4139,7 +4139,7 @@ public class StructureDetector {
                 IfStatement ifStmt = (IfStatement) stmt;
                 List<Statement> newOnTrue = replaceBlockBreaksWithSwitchBreaks(ifStmt.getOnTrue(), oldLabel, newLabel);
                 List<Statement> newOnFalse = replaceBlockBreaksWithSwitchBreaks(ifStmt.getOnFalse(), oldLabel, newLabel);
-                result.add(new IfStatement(ifStmt.getCondition(), ifStmt.isNegated(), newOnTrue, newOnFalse));
+                result.add(new IfStatement(ifStmt.getConditionNode(), ifStmt.isNegated(), newOnTrue, newOnFalse));
             } else if (stmt instanceof LoopStatement) {
                 LoopStatement loopStmt = (LoopStatement) stmt;
                 List<Statement> newBody = replaceBlockBreaksWithSwitchBreaks(loopStmt.getBody(), oldLabel, newLabel);
@@ -4181,7 +4181,7 @@ public class StructureDetector {
         List<Statement> result = new ArrayList<>();
         
         for (Node n : path) {
-            result.add(new ExpressionStatement(n.getLabel()));
+            result.add(new ExpressionStatement(n));
         }
         
         // Check if target is a return node
@@ -4199,7 +4199,7 @@ public class StructureDetector {
                 }
             }
             if (isReturnNode) {
-                result.add(new ExpressionStatement(target.getLabel()));
+                result.add(new ExpressionStatement(target));
             }
         }
         
@@ -4218,7 +4218,7 @@ public class StructureDetector {
         List<Statement> result = new ArrayList<>();
         
         for (Node n : path) {
-            result.add(new ExpressionStatement(n.getLabel()));
+            result.add(new ExpressionStatement(n));
         }
         
         if (continueLabel != null && !continueLabel.isEmpty()) {
@@ -4265,7 +4265,7 @@ public class StructureDetector {
                 if (breakOnTrue) {
                     List<Statement> breakBody = new ArrayList<>();
                     breakBody.add(new BreakStatement(labeledBreak.label));
-                    result.add(new IfStatement(node.getLabel(), false, breakBody));
+                    result.add(new IfStatement(node, false, breakBody));
                     Set<Node> elseVisited = new HashSet<>(visited);
                     elseVisited.add(node);
                     result.addAll(generateStatementsInBlock(ifStruct.falseBranch, elseVisited, loopHeaders, ifConditions, 
@@ -4273,7 +4273,7 @@ public class StructureDetector {
                 } else {
                     List<Statement> breakBody = new ArrayList<>();
                     breakBody.add(new BreakStatement(labeledBreak.label));
-                    result.add(new IfStatement(node.getLabel(), true, breakBody));
+                    result.add(new IfStatement(node, true, breakBody));
                     Set<Node> thenVisited = new HashSet<>(visited);
                     thenVisited.add(node);
                     result.addAll(generateStatementsInBlock(ifStruct.trueBranch, thenVisited, loopHeaders, ifConditions, 
@@ -4302,7 +4302,7 @@ public class StructureDetector {
                 Set<Node> falseVisited = new HashSet<>(visited);
                 List<Statement> onTrue = generateStatementsInBlock(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, 
                                           labeledBreakEdges, currentBlock, internalMerge);
-                result.add(new IfStatement(node.getLabel(), true, onTrue));
+                result.add(new IfStatement(node, true, onTrue));
                 
                 if (internalMerge != null && currentBlock.body.contains(internalMerge)) {
                     visited.addAll(falseVisited);
@@ -4316,7 +4316,7 @@ public class StructureDetector {
                 Set<Node> trueVisited = new HashSet<>(visited);
                 List<Statement> onTrue = generateStatementsInBlock(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, 
                                           labeledBreakEdges, currentBlock, internalMerge);
-                result.add(new IfStatement(node.getLabel(), false, onTrue));
+                result.add(new IfStatement(node, false, onTrue));
                 Set<Node> falseVisited = new HashSet<>(visited);
                 falseVisited.addAll(trueVisited);
                 result.addAll(generateStatementsInBlock(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, 
@@ -4334,7 +4334,7 @@ public class StructureDetector {
                 Set<Node> falseVisited = new HashSet<>(visited);
                 List<Statement> onTrue = generateStatementsInBlock(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, 
                                           labeledBreakEdges, currentBlock, internalMerge);
-                result.add(new IfStatement(node.getLabel(), true, onTrue));
+                result.add(new IfStatement(node, true, onTrue));
                 Set<Node> trueVisited = new HashSet<>(visited);
                 trueVisited.addAll(falseVisited);
                 result.addAll(generateStatementsInBlock(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, 
@@ -4352,7 +4352,7 @@ public class StructureDetector {
                 Set<Node> trueVisited = new HashSet<>(visited);
                 List<Statement> onTrue = generateStatementsInBlock(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, 
                                           labeledBreakEdges, currentBlock, internalMerge);
-                result.add(new IfStatement(node.getLabel(), false, onTrue));
+                result.add(new IfStatement(node, false, onTrue));
                 
                 if (internalMerge != null && currentBlock.body.contains(internalMerge)) {
                     visited.addAll(trueVisited);
@@ -4371,7 +4371,7 @@ public class StructureDetector {
             List<Statement> onFalse = generateStatementsInBlock(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, 
                                       labeledBreakEdges, currentBlock, internalMerge);
             
-            result.add(new IfStatement(node.getLabel(), false, onTrue, onFalse));
+            result.add(new IfStatement(node, false, onTrue, onFalse));
             
             if (internalMerge != null && currentBlock.body.contains(internalMerge)) {
                 visited.addAll(trueVisited);
@@ -4386,7 +4386,7 @@ public class StructureDetector {
         boolean leadsOutside = false;
         for (Node succ : node.succs) {
             if (succ.equals(currentBlock.endNode) && node.succs.size() == 1) {
-                result.add(new ExpressionStatement(node.getLabel()));
+                result.add(new ExpressionStatement(node));
                 if (stopAt != null) {
                     result.add(new BreakStatement(currentBlock.label));
                 }
@@ -4398,7 +4398,7 @@ public class StructureDetector {
         }
         
         // Regular node
-        result.add(new ExpressionStatement(node.getLabel()));
+        result.add(new ExpressionStatement(node));
         
         for (Node succ : node.succs) {
             if (currentBlock.body.contains(succ) && (stopAt == null || !succ.equals(stopAt))) {
