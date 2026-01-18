@@ -946,9 +946,52 @@ public class StructureDetector {
     /**
      * Computes dominators for all nodes using iterative dataflow analysis.
      * A node D dominates node N if every path from entry to N goes through D.
+     * Exception handler entry points (nodes with no predecessors) are treated specially
+     * to avoid breaking dominator relationships for loop detection.
      */
     private Map<Node, Set<Node>> computeDominators() {
         Map<Node, Set<Node>> dominators = new HashMap<>();
+        
+        // Identify catch block entry points (nodes with no predecessors except the entry node)
+        Set<Node> catchEntryNodes = new HashSet<>();
+        for (Node node : allNodes) {
+            if (!node.equals(entryNode) && node.preds.isEmpty()) {
+                catchEntryNodes.add(node);
+            }
+        }
+        
+        // Also identify all nodes reachable only from catch entry points
+        Set<Node> catchBodyNodes = new HashSet<>(catchEntryNodes);
+        boolean added = true;
+        while (added) {
+            added = false;
+            for (Node node : allNodes) {
+                if (catchBodyNodes.contains(node)) continue;
+                // Check if all predecessors (excluding self-loops) are in catchBodyNodes
+                boolean allPredsAreCatch = !node.preds.isEmpty();
+                boolean hasSelfLoop = node.preds.contains(node);
+                for (Node pred : node.preds) {
+                    // Skip self-loops when checking
+                    if (pred.equals(node)) continue;
+                    if (!catchBodyNodes.contains(pred)) {
+                        allPredsAreCatch = false;
+                        break;
+                    }
+                }
+                // Also check that the node has at least one non-self predecessor
+                boolean hasNonSelfPred = false;
+                for (Node pred : node.preds) {
+                    if (!pred.equals(node)) {
+                        hasNonSelfPred = true;
+                        break;
+                    }
+                }
+                if (allPredsAreCatch && hasNonSelfPred) {
+                    catchBodyNodes.add(node);
+                    added = true;
+                }
+            }
+        }
         
         // Initialize: entry dominates only itself, others are dominated by all
         Set<Node> allNodesSet = new HashSet<>(allNodes);
@@ -971,13 +1014,21 @@ public class StructureDetector {
                 
                 Set<Node> newDom;
                 
-                // Handle nodes with no predecessors - they are only dominated by themselves
-                if (node.preds.isEmpty()) {
+                // Get predecessors, filtering out catch body nodes for dominator computation
+                List<Node> filteredPreds = new ArrayList<>();
+                for (Node pred : node.preds) {
+                    if (!catchBodyNodes.contains(pred)) {
+                        filteredPreds.add(pred);
+                    }
+                }
+                
+                // Handle nodes with no filtered predecessors - they are only dominated by themselves
+                if (filteredPreds.isEmpty()) {
                     newDom = new HashSet<>();
                 } else {
                     newDom = new HashSet<>(allNodesSet);
-                    // Intersect dominators of all predecessors
-                    for (Node pred : node.preds) {
+                    // Intersect dominators of all filtered predecessors
+                    for (Node pred : filteredPreds) {
                         Set<Node> predDom = dominators.get(pred);
                         if (predDom != null) {
                             newDom.retainAll(predDom);
@@ -2609,7 +2660,7 @@ public class StructureDetector {
      * Generates statements for a catch body that is inside a loop.
      * Handles continue statements when catch body has edges back to the loop header.
      * Handles break statements when catch body has edges outside the loop.
-     * Handles if-conditions within the catch body.
+     * Handles if-conditions and nested while loops within the catch body.
      */
     private List<Statement> generateCatchBodyInLoop(Node startNode, Set<Node> catchBody, Set<Node> visited,
                                                Map<Node, LoopStructure> loopHeaders, Map<Node, IfStructure> ifConditions,
@@ -2625,6 +2676,34 @@ public class StructureDetector {
         
         visited.add(startNode);
         
+        // Check if this node is a nested while loop header inside the catch body (self-loop)
+        boolean isSelfLoop = startNode.succs.contains(startNode);
+        if (isSelfLoop && startNode.succs.size() == 2) {
+            // This is a while loop header inside catch body
+            Node loopExit = null;
+            for (Node succ : startNode.succs) {
+                if (!succ.equals(startNode)) {
+                    loopExit = succ;
+                    break;
+                }
+            }
+            
+            // Generate while(true) { if (H) { break; } }
+            List<Statement> whileBody = new ArrayList<>();
+            List<Statement> breakBody = new ArrayList<>();
+            breakBody.add(new BreakStatement());
+            whileBody.add(new IfStatement(startNode.getLabel(), false, breakBody));
+            result.add(new LoopStatement(null, whileBody));
+            
+            // Continue with the exit node
+            if (loopExit != null && catchBody.contains(loopExit) && !visited.contains(loopExit)) {
+                result.addAll(generateCatchBodyInLoop(loopExit, catchBody, visited,
+                                loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                                loopsNeedingLabels, currentLoop, currentBlock, switchStarts));
+            }
+            return result;
+        }
+        
         // Check if this is an if-condition with 2 successors
         if (startNode.succs.size() == 2) {
             Node trueSucc = startNode.succs.get(0);
@@ -2633,8 +2712,8 @@ public class StructureDetector {
             // Determine which branch is inside the catch body and which exits the loop
             boolean trueInCatch = catchBody.contains(trueSucc);
             boolean falseInCatch = catchBody.contains(falseSucc);
-            boolean trueIsBreak = currentLoop != null && !currentLoop.body.contains(trueSucc);
-            boolean falseIsBreak = currentLoop != null && !currentLoop.body.contains(falseSucc);
+            boolean trueIsBreak = currentLoop != null && !currentLoop.body.contains(trueSucc) && !catchBody.contains(trueSucc);
+            boolean falseIsBreak = currentLoop != null && !currentLoop.body.contains(falseSucc) && !catchBody.contains(falseSucc);
             boolean trueIsContinue = currentLoop != null && trueSucc.equals(currentLoop.header);
             boolean falseIsContinue = currentLoop != null && falseSucc.equals(currentLoop.header);
             
@@ -2677,6 +2756,85 @@ public class StructureDetector {
                                     loopsNeedingLabels, currentLoop, currentBlock, switchStarts));
                 }
                 return result;
+            } else if (trueInCatch && falseInCatch) {
+                // Both branches are in catch body - check for inner while loop pattern
+                // e.g., d->H where H has a self-loop and d->k where k is the loop exit
+                boolean trueIsSelfLoop = trueSucc.succs.contains(trueSucc);
+                boolean falseIsSelfLoop = falseSucc.succs.contains(falseSucc);
+                
+                if (trueIsSelfLoop && !falseIsSelfLoop) {
+                    // True branch is a while loop header, false branch is the merge/exit point
+                    // Find the loop exit of the true branch (should be the same as false branch)
+                    Node trueLoopExit = null;
+                    for (Node succ : trueSucc.succs) {
+                        if (!succ.equals(trueSucc)) {
+                            trueLoopExit = succ;
+                            break;
+                        }
+                    }
+                    
+                    // Generate: if (d) { while(true) { if (H) { break; } } }
+                    List<Statement> ifBody = new ArrayList<>();
+                    List<Statement> whileBody = new ArrayList<>();
+                    List<Statement> breakBody = new ArrayList<>();
+                    breakBody.add(new BreakStatement());
+                    whileBody.add(new IfStatement(trueSucc.getLabel(), false, breakBody));
+                    ifBody.add(new LoopStatement(null, whileBody));
+                    result.add(new IfStatement(startNode.getLabel(), false, ifBody));
+                    
+                    // Mark the loop header as visited
+                    visited.add(trueSucc);
+                    
+                    // Process the merge point (false branch / loop exit)
+                    // If both branches merge at the same node, process it once
+                    Node mergeNode = falseSucc;
+                    if (trueLoopExit != null && trueLoopExit.equals(falseSucc)) {
+                        // Both branches merge at the same node
+                        mergeNode = falseSucc;
+                    }
+                    
+                    if (!visited.contains(mergeNode)) {
+                        result.addAll(generateCatchBodyInLoop(mergeNode, catchBody, visited,
+                                        loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                                        loopsNeedingLabels, currentLoop, currentBlock, switchStarts));
+                    }
+                    return result;
+                } else if (falseIsSelfLoop && !trueIsSelfLoop) {
+                    // False branch is a while loop header - negate condition
+                    // Find the loop exit of the false branch
+                    Node falseLoopExit = null;
+                    for (Node succ : falseSucc.succs) {
+                        if (!succ.equals(falseSucc)) {
+                            falseLoopExit = succ;
+                            break;
+                        }
+                    }
+                    
+                    // Generate: if (!d) { while(true) { if (H) { break; } } }  (negated)
+                    List<Statement> ifBody = new ArrayList<>();
+                    List<Statement> whileBody = new ArrayList<>();
+                    List<Statement> breakBody = new ArrayList<>();
+                    breakBody.add(new BreakStatement());
+                    whileBody.add(new IfStatement(falseSucc.getLabel(), false, breakBody));
+                    ifBody.add(new LoopStatement(null, whileBody));
+                    result.add(new IfStatement(startNode.getLabel(), true, ifBody));  // negated
+                    
+                    // Mark the loop header as visited
+                    visited.add(falseSucc);
+                    
+                    // Process the merge point (true branch / loop exit)
+                    Node mergeNode = trueSucc;
+                    if (falseLoopExit != null && falseLoopExit.equals(trueSucc)) {
+                        mergeNode = trueSucc;
+                    }
+                    
+                    if (!visited.contains(mergeNode)) {
+                        result.addAll(generateCatchBodyInLoop(mergeNode, catchBody, visited,
+                                        loopHeaders, ifConditions, blockStarts, labeledBreakEdges,
+                                        loopsNeedingLabels, currentLoop, currentBlock, switchStarts));
+                    }
+                    return result;
+                }
             }
         }
         
@@ -4827,12 +4985,17 @@ public class StructureDetector {
             "  cond->a;\n" +
             "  c1->end;\n" +
             "  c1->d;\n" +
+            "  d->H;\n" +
+            "  d->k;\n" +
+            "  H->k;\n" +
+            "  H->H;\n" +
+            "  k->after_try;\n" +
             "  c2->cond;\n" +
             "  a->after_try;\n" +
             "  after_try->cond;\n" +
             "  end;\n" +
             "}",
-            "a => c1, d; " +
+            "a => c1, d, H, k; " +
             "a => c2"
         );
     }
