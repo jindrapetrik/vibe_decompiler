@@ -221,15 +221,31 @@ public class StructureDetector {
     public static class TryStructure {
         public final Set<Node> tryBody;     // nodes in the try block
         public final Set<Node> catchBody;   // nodes in the catch block
+        public final int exceptionIndex;    // global index of this exception
         
-        public TryStructure(Set<Node> tryBody, Set<Node> catchBody) {
+        public TryStructure(Set<Node> tryBody, Set<Node> catchBody, int exceptionIndex) {
             this.tryBody = tryBody;
             this.catchBody = catchBody;
+            this.exceptionIndex = exceptionIndex;
         }
         
         @Override
         public String toString() {
-            return "Try{try=" + tryBody + ", catch=" + catchBody + "}";
+            return "Try{try=" + tryBody + ", catch=" + catchBody + ", index=" + exceptionIndex + "}";
+        }
+    }
+    
+    /**
+     * Represents a grouped try structure with multiple catch handlers.
+     * Used when multiple exceptions have the same try body.
+     */
+    public static class GroupedTryStructure {
+        public final Set<Node> tryBody;                    // nodes in the try block
+        public final List<TryStructure> catchHandlers;     // list of catch handlers with their indices
+        
+        public GroupedTryStructure(Set<Node> tryBody, List<TryStructure> catchHandlers) {
+            this.tryBody = tryBody;
+            this.catchHandlers = catchHandlers;
         }
     }
     
@@ -351,7 +367,8 @@ public class StructureDetector {
      * @param catchNodes nodes in the catch block
      */
     public void addException(Set<Node> tryNodes, Set<Node> catchNodes) {
-        TryStructure tryStruct = new TryStructure(tryNodes, catchNodes);
+        int exceptionIndex = tryStructures.size();  // Use current size as the index
+        TryStructure tryStruct = new TryStructure(tryNodes, catchNodes, exceptionIndex);
         tryStructures.add(tryStruct);
         
         // Add catch nodes to allNodes if not already present
@@ -2427,6 +2444,30 @@ public class StructureDetector {
             }
         }
         return result;
+    }
+    
+    /**
+     * Finds all try structures that start at the given node and have the same try body.
+     * Returns a GroupedTryStructure containing multiple catch handlers.
+     */
+    private GroupedTryStructure findGroupedTryStructureStartingAt(Node node) {
+        TryStructure firstTry = findTryStructureStartingAt(node);
+        if (firstTry == null) {
+            return null;
+        }
+        
+        // Find all try structures with the same try body
+        List<TryStructure> handlers = new ArrayList<>();
+        for (TryStructure tryStruct : tryStructures) {
+            if (tryStruct.tryBody.equals(firstTry.tryBody)) {
+                handlers.add(tryStruct);
+            }
+        }
+        
+        // Sort by exception index to maintain order
+        handlers.sort((a, b) -> Integer.compare(a.exceptionIndex, b.exceptionIndex));
+        
+        return new GroupedTryStructure(firstTry.tryBody, handlers);
     }
     
     /**
