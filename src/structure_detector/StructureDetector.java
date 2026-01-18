@@ -255,6 +255,13 @@ public class StructureDetector {
     private final List<SwitchStructure> switchStructures = new ArrayList<>();
     private final List<TryStructure> tryStructures = new ArrayList<>();
     private Map<String, Node> nodesByLabel = new LinkedHashMap<>();
+    
+    // Global label counter for loops and blocks (shared sequence: loop0, block1, loop2, etc.)
+    private int globalLabelCounter = 0;
+    // Maps loop header nodes to their assigned labels (e.g., "loop0")
+    private final Map<Node, String> loopLabels = new HashMap<>();
+    // Maps block label strings (old style like "node_block") to new style (e.g., "block1")
+    private final Map<String, String> blockLabelMapping = new HashMap<>();
 
     /**
      * Creates a new StructureDetector for the given CFG.
@@ -282,6 +289,32 @@ public class StructureDetector {
         this.allNodes = collectAllNodes(entryNode);
         // Store all parsed nodes (including those not reachable from entry)
         this.nodesByLabel = new LinkedHashMap<>(parsedNodes);
+    }
+    
+    /**
+     * Gets or assigns a loop label for a given loop header node.
+     * Uses global counter for sequential naming (loop0, loop1, etc.).
+     */
+    private String getLoopLabel(Node loopHeader) {
+        return loopLabels.computeIfAbsent(loopHeader, k -> "loop" + globalLabelCounter++);
+    }
+    
+    /**
+     * Gets the mapped block label, converting old-style (node_block) to new-style (block0).
+     * If no mapping exists, creates a new one with the global counter.
+     */
+    private String getBlockLabel(String oldLabel) {
+        return blockLabelMapping.computeIfAbsent(oldLabel, k -> "block" + globalLabelCounter++);
+    }
+    
+    /**
+     * Resets the global label counter and mappings.
+     * Called at the start of toPseudocode() to ensure consistent labeling.
+     */
+    private void resetLabelCounters() {
+        globalLabelCounter = 0;
+        loopLabels.clear();
+        blockLabelMapping.clear();
     }
 
     /**
@@ -1291,7 +1324,8 @@ public class StructureDetector {
             Node blockStart = findEarliestSkipBlockStart(patterns, ifs);
             
             if (blockStart != null && !blockStart.equals(convergencePoint)) {
-                String label = blockStart.getLabel() + "_block";
+                String oldLabel = blockStart.getLabel() + "_block";
+                String label = getBlockLabel(oldLabel);
                 
                 // Check if this block already exists
                 boolean exists = false;
@@ -1388,7 +1422,8 @@ public class StructureDetector {
                 
                 if (hasSkipPattern) {
                     // Create a block from inner loop header to convergence point
-                    String label = innerLoop.header.getLabel() + "_block";
+                    String oldLabel = innerLoop.header.getLabel() + "_block";
+                    String label = getBlockLabel(oldLabel);
                     
                     // Check if this block already exists
                     boolean exists = false;
@@ -1788,7 +1823,8 @@ public class StructureDetector {
             if (blockStart == null) continue;
             
             // Generate unique label based on block start node to avoid conflicts
-            String label = blockStart.getLabel() + "_block";
+            String oldLabel = blockStart.getLabel() + "_block";
+            String label = getBlockLabel(oldLabel);
             
             // Check if this block already exists
             boolean exists = false;
@@ -2150,6 +2186,9 @@ public class StructureDetector {
      * @return list of statements representing the detected structures
      */
     public List<Statement> toStatementList() {
+        // Reset label counters for consistent labeling
+        resetLabelCounters();
+        
         List<Statement> result = new ArrayList<>();
         Set<Node> visited = new HashSet<>();
         List<LoopStructure> loops = detectLoops();
@@ -2315,8 +2354,8 @@ public class StructureDetector {
             
             // If this loop contains the current loop and the target is outside this loop
             if (loop.body.contains(currentLoop.header) && !loop.body.contains(breakTarget)) {
-                // Return loop label with _loop suffix (e.g., "outer_loop")
-                return loop.header.getLabel() + "_loop";
+                // Return loop label (e.g., "loop0")
+                return getLoopLabel(loop.header);
             }
         }
         
@@ -2380,7 +2419,7 @@ public class StructureDetector {
             // Check this BEFORE the conditional check since the header is often a conditional
             if (current.equals(currentLoop.header)) {
                 // Return continue result with loop label
-                String loopLabel = currentLoop.header.getLabel() + "_loop";
+                String loopLabel = getLoopLabel(currentLoop.header);
                 return new BranchTargetResult(current, loopLabel, false, true);
             }
             
@@ -3340,7 +3379,7 @@ public class StructureDetector {
             }
             
             // Determine loop label
-            String loopLabel = loopsNeedingLabels.contains(node) ? node.getLabel() + "_loop" : null;
+            String loopLabel = loopsNeedingLabels.contains(node) ? getLoopLabel(node) : null;
             result.add(new LoopStatement(loopLabel, loopBody));
             
             // Continue after the loop
@@ -3592,7 +3631,7 @@ public class StructureDetector {
             }
             
             // Determine loop label
-            String loopLabel = loopsNeedingLabels.contains(node) ? node.getLabel() + "_loop" : null;
+            String loopLabel = loopsNeedingLabels.contains(node) ? getLoopLabel(node) : null;
             result.add(new LoopStatement(loopLabel, loopBody));
             
             if (loopExit != null && currentLoop.body.contains(loopExit)) {
@@ -3723,7 +3762,7 @@ public class StructureDetector {
                         String breakLabel = trueBranchTarget.breakLabel;
                         if (!currentLoop.body.contains(trueBranchTarget.target)) {
                             // Target is outside the loop - use loop label instead of labeled block
-                            breakLabel = loopsNeedingLabels.contains(currentLoop.header) ? currentLoop.header.getLabel() + "_loop" : null;
+                            breakLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
                         }
                         List<Statement> breakBody = outputPathAndBreakStatements(path, breakLabel, currentLoop, currentBlock, trueBranchTarget.target);
                         result.add(new IfStatement(node.getLabel(), false, breakBody));
@@ -3741,7 +3780,7 @@ public class StructureDetector {
                                 // Use loop break label when target is outside the loop
                                 String falseBreakLabel = falseBranchTarget.breakLabel;
                                 if (!currentLoop.body.contains(falseBranchTarget.target)) {
-                                    falseBreakLabel = loopsNeedingLabels.contains(currentLoop.header) ? currentLoop.header.getLabel() + "_loop" : null;
+                                    falseBreakLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
                                 }
                                 List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                                 result.addAll(outputPathAndBreakStatements(falsePath, falseBreakLabel, currentLoop, currentBlock, falseBranchTarget.target));
@@ -3796,7 +3835,7 @@ public class StructureDetector {
                     if (!currentLoop.body.contains(ifStruct.trueBranch)) {
                         List<Statement> breakBody = new ArrayList<>();
                         // Use labeled loop break when inside a loop (needed for switches inside loops)
-                        String loopLabel = loopsNeedingLabels.contains(currentLoop.header) ? currentLoop.header.getLabel() + "_loop" : null;
+                        String loopLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
                         breakBody.add(new BreakStatement(loopLabel));
                         // Output if with break, negate condition so break is on false branch (flatten else)
                         result.add(new IfStatement(node.getLabel(), true, breakBody));
@@ -3807,7 +3846,7 @@ public class StructureDetector {
                     } else {
                         List<Statement> breakBody = new ArrayList<>();
                         // Use labeled loop break when inside a loop (needed for switches inside loops)
-                        String loopLabel = loopsNeedingLabels.contains(currentLoop.header) ? currentLoop.header.getLabel() + "_loop" : null;
+                        String loopLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
                         breakBody.add(new BreakStatement(loopLabel));
                         // Output if with break (don't negate - break is on false branch)
                         result.add(new IfStatement(node.getLabel(), false, breakBody));
@@ -4046,7 +4085,7 @@ public class StructureDetector {
         }
         
         if (targetLoop != null) {
-            result.add(new BreakStatement(targetLoop.header.getLabel() + "_loop"));
+            result.add(new BreakStatement(getLoopLabel(targetLoop.header)));
         } else {
             result.add(new ExpressionStatement(node.getLabel()));
         }
@@ -4084,7 +4123,7 @@ public class StructureDetector {
         if (breakLabel != null && !breakLabel.isEmpty()) {
             result.add(new BreakStatement(breakLabel));
         } else if (currentBlock != null && currentLoop != null) {
-            result.add(new BreakStatement(currentLoop.header.getLabel() + "_loop"));
+            result.add(new BreakStatement(getLoopLabel(currentLoop.header)));
         } else {
             result.add(new BreakStatement());
         }
