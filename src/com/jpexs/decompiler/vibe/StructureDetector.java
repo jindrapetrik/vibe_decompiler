@@ -593,34 +593,7 @@ public class StructureDetector {
         }
         
         return null; // No merge node found (e.g., branches don't converge)
-    }
-
-    /**
-     * Checks if target is reachable from start using early-exit BFS.
-     */
-    private boolean isReachable(Node start, Node target) {
-        if (start.equals(target)) {
-            return true;
-        }
-        Set<Node> visited = new HashSet<>();
-        Queue<Node> queue = new LinkedList<>();
-        queue.add(start);
-        visited.add(start);
-        
-        while (!queue.isEmpty()) {
-            Node current = queue.poll();
-            for (Node succ : current.succs) {
-                if (succ.equals(target)) {
-                    return true;
-                }
-                if (!visited.contains(succ)) {
-                    visited.add(succ);
-                    queue.add(succ);
-                }
-            }
-        }
-        return false;
-    }
+    }   
     
     /**
      * Checks if target is reachable from start within a loop's body.
@@ -734,41 +707,32 @@ public class StructureDetector {
         Map<Node, Set<Node>> dominators = computeDominators();
         
         // Find back edges: edge (u, v) where v dominates u
-        List<BackEdge> backEdges = new ArrayList<>();
+        List<Edge> backEdges = new ArrayList<>();
         for (Node node : allNodes) {
             Set<Node> nodeDominators = dominators.get(node);
             for (Node succ : node.succs) {
                 if (nodeDominators != null && nodeDominators.contains(succ)) {
-                    backEdges.add(new BackEdge(node, succ));
+                    backEdges.add(new Edge(node, succ));
                 }
             }
         }
         
         // For each back edge, identify the natural loop
-        for (BackEdge backEdge : backEdges) {
+        for (Edge backEdge : backEdges) {
             Node header = backEdge.to;
             Node tail = backEdge.from;
             Set<Node> loopBody = findNaturalLoop(header, tail);
             LoopStructure loop = new LoopStructure(header, loopBody, tail);
             
             // Detect breaks and continues within the loop
-            detectBreaksAndContinues(loop, dominators);
+            detectBreaksAndContinues(loop);
             
             loops.add(loop);
         }
         
         return loops;
     }
-
-    private static class BackEdge {
-        final Node from;
-        final Node to;
-        
-        BackEdge(Node from, Node to) {
-            this.from = from;
-            this.to = to;
-        }
-    }
+  
 
     /**
      * Computes dominators for all nodes using iterative dataflow analysis.
@@ -796,7 +760,6 @@ public class StructureDetector {
                 if (catchBodyNodes.contains(node)) continue;
                 // Check if all predecessors (excluding self-loops) are in catchBodyNodes
                 boolean allPredsAreCatch = !node.preds.isEmpty();
-                boolean hasSelfLoop = node.preds.contains(node);
                 for (Node pred : node.preds) {
                     // Skip self-loops when checking
                     if (pred.equals(node)) continue;
@@ -909,7 +872,7 @@ public class StructureDetector {
      * - Break: edge from a loop body node to a node outside the loop
      * - Continue: edge from a loop body node (not the back-edge source) to the header
      */
-    private void detectBreaksAndContinues(LoopStructure loop, Map<Node, Set<Node>> dominators) {
+    private void detectBreaksAndContinues(LoopStructure loop) {
         for (Node node : loop.body) {
             for (Node succ : node.succs) {
                 // Break: edge going outside the loop
@@ -947,67 +910,7 @@ public class StructureDetector {
             if (existing == null || loop.body.size() > existing.body.size()) {
                 mainLoops.put(loop.header, loop);
             }
-        }
-        
-        // For each main loop, find edges that jump to nodes inside the loop (not header)
-        // These represent continue-like jumps that need labeled blocks
-        for (LoopStructure loop : mainLoops.values()) {
-            Node backEdgeSource = loop.backEdgeSource;
-            
-            // Skip if the back-edge source is the loop header itself (simple while loop)
-            if (backEdgeSource.equals(loop.header)) {
-                continue;
-            }
-            
-            // Also skip if there are direct continues to the header from within the loop body
-            // (not from the back-edge source). This indicates a simple while loop pattern
-            // where we can use simple 'continue;' statements instead of labeled blocks.
-            boolean hasDirectContinueToHeader = false;
-            for (Node node : loop.body) {
-                if (!node.equals(loop.header) && !node.equals(backEdgeSource)) {
-                    // Check if this node has a direct edge to the header
-                    for (Node succ : node.succs) {
-                        if (succ.equals(loop.header)) {
-                            hasDirectContinueToHeader = true;
-                            break;
-                        }
-                    }
-                }
-                if (hasDirectContinueToHeader) break;
-            }
-            
-            // If there are direct continues to the header, we don't need labeled blocks
-            // because we can use simple 'continue;' statements
-            if (hasDirectContinueToHeader) {
-                continue;
-            }
-            
-            // Find all paths that lead to the back-edge source from conditional nodes
-            // These are "skip" jumps (continue semantics).
-            boolean needsLabeledBlock = false;
-            
-            // Check all nodes in ALL loops (not just this one) for paths to this loop's back-edge source
-            for (Node node : allNodes) {
-                // Skip the back-edge source itself and the loop header
-                if (node.equals(backEdgeSource) || node.equals(loop.header)) {
-                    continue;
-                }
-                
-                // Check if this node leads (directly or indirectly) to the back-edge source
-                // via a path that doesn't go through the loop header
-                if (leadsToBackEdgeSource(node, backEdgeSource, loop.header)) {
-                    // This node eventually reaches the back-edge source
-                    // If it's a conditional node (has 2 successors), it might be a continue pattern
-                    if (node.succs.size() >= 2) {
-                        needsLabeledBlock = true;
-                        break;
-                    }
-                }
-            }
-            
-            // Continue block detection is now handled by detectSkipBlocksInLoops
-            // which creates separate labeled blocks for each skip pattern within the loop.
-        }
+        }               
         
         // Detect skip blocks within loops (separate labeled blocks for skip patterns)
         detectSkipBlocksInLoops(loops, mainLoops);
@@ -1088,21 +991,21 @@ public class StructureDetector {
                 // the condition should be treated as a labeled block boundary.
                 if (branchGoesDirectlyToMerge) {
                     skipsByConvergence.computeIfAbsent(effectiveMerge, k -> new ArrayList<>())
-                               .add(new SkipPattern(cond, cond, effectiveMerge, loop));
+                               .add(new SkipPattern(cond, effectiveMerge, loop));
                 }
                 
                 // Check true branch for skip
                 Node skipSource = findDirectJumpToMergeInLoop(trueBranch, effectiveMerge, loop);
                 if (skipSource != null) {
                     skipsByConvergence.computeIfAbsent(effectiveMerge, k -> new ArrayList<>())
-                               .add(new SkipPattern(cond, skipSource, effectiveMerge, loop));
+                               .add(new SkipPattern(cond, effectiveMerge, loop));
                 }
                 
                 // Check false branch for skip
                 skipSource = findDirectJumpToMergeInLoop(falseBranch, effectiveMerge, loop);
                 if (skipSource != null) {
                     skipsByConvergence.computeIfAbsent(effectiveMerge, k -> new ArrayList<>())
-                               .add(new SkipPattern(cond, skipSource, effectiveMerge, loop));
+                               .add(new SkipPattern(cond, effectiveMerge, loop));
                 }
             }
         }
@@ -1131,7 +1034,6 @@ public class StructureDetector {
                 }
                 
                 if (!exists) {
-                    LoopStructure loop = patterns.get(0).loop;
                     addLabeledBlock(label, blockStart, convergencePoint, mainLoops);
                 }
             }
@@ -1239,13 +1141,11 @@ public class StructureDetector {
     // Helper class for skip patterns
     private static class SkipPattern {
         Node condNode;
-        Node skipSource;
         Node mergeNode;
         LoopStructure loop;
         
-        SkipPattern(Node condNode, Node skipSource, Node mergeNode, LoopStructure loop) {
+        SkipPattern(Node condNode, Node mergeNode, LoopStructure loop) {
             this.condNode = condNode;
-            this.skipSource = skipSource;
             this.mergeNode = mergeNode;
             this.loop = loop;
         }
@@ -1411,129 +1311,7 @@ public class StructureDetector {
         }
         
         return null;
-    }
-    
-    /**
-     * Finds the correct end node for a continue block.
-     * This is the first node in the chain from loop body to back-edge source
-     * where multiple paths converge (the entry point of the continue chain).
-     */
-    private Node findContinueBlockEnd(LoopStructure loop, Node backEdgeSource) {
-        // Trace backwards from backEdgeSource to find the first convergence point
-        // where multiple distinct paths from the loop body meet
-        
-        Set<Node> visited = new HashSet<>();
-        Queue<Node> queue = new LinkedList<>();
-        queue.add(backEdgeSource);
-        
-        Node blockEnd = backEdgeSource;
-        
-        while (!queue.isEmpty()) {
-            Node current = queue.poll();
-            if (visited.contains(current)) continue;
-            visited.add(current);
-            
-            // Count predecessors from the loop body
-            List<Node> loopPreds = new ArrayList<>();
-            for (Node pred : current.preds) {
-                if (loop.body.contains(pred) && !pred.equals(loop.header)) {
-                    loopPreds.add(pred);
-                }
-            }
-            
-            // If we have multiple predecessors from different paths, this is a convergence point
-            if (loopPreds.size() >= 2) {
-                // Check if these predecessors are from truly different code paths
-                // (not just two branches of the same conditional merging immediately)
-                boolean fromDifferentPaths = false;
-                for (int i = 0; i < loopPreds.size() && !fromDifferentPaths; i++) {
-                    for (int j = i + 1; j < loopPreds.size(); j++) {
-                        Node pred1 = loopPreds.get(i);
-                        Node pred2 = loopPreds.get(j);
-                        
-                        // Check if pred1 and pred2 have a common immediate parent conditional
-                        // If not, they're from truly different paths
-                        boolean shareImmediateParent = false;
-                        for (Node p1Parent : pred1.preds) {
-                            for (Node p2Parent : pred2.preds) {
-                                if (p1Parent.equals(p2Parent) && p1Parent.succs.size() >= 2) {
-                                    shareImmediateParent = true;
-                                    break;
-                                }
-                            }
-                            if (shareImmediateParent) break;
-                        }
-                        
-                        if (!shareImmediateParent) {
-                            fromDifferentPaths = true;
-                            break;
-                        }
-                    }
-                }
-                
-                if (fromDifferentPaths) {
-                    blockEnd = current;
-                    break;
-                }
-            }
-            
-            // Continue searching backwards
-            for (Node pred : loopPreds) {
-                queue.add(pred);
-            }
-        }
-        
-        // Make sure blockEnd is different from bodyStart - if they're the same,
-        // we don't need a labeled block (empty body)
-        Node bodyStart = null;
-        for (Node succ : loop.header.succs) {
-            if (loop.body.contains(succ) && !succ.equals(loop.header)) {
-                bodyStart = succ;
-                break;
-            }
-        }
-        if (blockEnd != null && blockEnd.equals(bodyStart)) {
-            return null; // No labeled block needed
-        }
-        
-        return blockEnd;
-    }
-    
-    /**
-     * Checks if a node leads to a back-edge source through a path that doesn't go through the header.
-     * The path must be a single-successor chain (no branching) from this node's successor to the target.
-     */
-    private boolean leadsToBackEdgeSource(Node node, Node backEdgeSource, Node header) {
-        for (Node succ : node.succs) {
-            // Follow single-successor chains to see if they reach the back-edge source
-            Node current = succ;
-            Set<Node> visited = new HashSet<>();
-            
-            while (current != null && !visited.contains(current)) {
-                visited.add(current);
-                
-                // Found the back-edge source
-                if (current.equals(backEdgeSource)) {
-                    return true;
-                }
-                
-                // Don't go through the header
-                if (current.equals(header)) {
-                    break;
-                }
-                
-                // Only follow single-successor chains (non-conditional nodes)
-                // This detects paths like: check_e20 -> trace_Y -> inc_c
-                if (current.succs.size() == 1) {
-                    current = current.succs.get(0);
-                } else {
-                    // Multi-branch node - stop following
-                    break;
-                }
-            }
-        }
-        return false;
-    }
+    }        
 
     /**
      * Detects labeled blocks for if-statement skip patterns outside of loops.
@@ -1585,7 +1363,7 @@ public class StructureDetector {
                 // Only detect as skip if the other branch takes significantly longer
                 if (pathFromFalse > pathFromSkip + 1) {
                     skipsByTarget.computeIfAbsent(mergeNode, k -> new ArrayList<>())
-                                 .add(new SkipInfo(cond, skipSource, mergeNode));
+                                 .add(new SkipInfo(cond));
                 }
             }
             
@@ -1599,7 +1377,7 @@ public class StructureDetector {
                 // Only detect as skip if the other branch takes significantly longer
                 if (pathFromTrue > pathFromSkip + 1) {
                     skipsByTarget.computeIfAbsent(mergeNode, k -> new ArrayList<>())
-                                 .add(new SkipInfo(cond, skipSource, mergeNode));
+                                 .add(new SkipInfo(cond));
                 }
             }
         }
@@ -1612,7 +1390,7 @@ public class StructureDetector {
             if (skips.isEmpty()) continue;
             
             // Find the earliest common dominator of all the condition nodes
-            Node blockStart = findEarliestConditionNode(skips, ifs);
+            Node blockStart = findEarliestConditionNode(skips);
             
             if (blockStart == null) continue;
             
@@ -1671,13 +1449,9 @@ public class StructureDetector {
      */
     private static class SkipInfo {
         final Node conditionNode;
-        final Node skipSource;
-        final Node skipTarget;
         
-        SkipInfo(Node conditionNode, Node skipSource, Node skipTarget) {
+        SkipInfo(Node conditionNode) {
             this.conditionNode = conditionNode;
-            this.skipSource = skipSource;
-            this.skipTarget = skipTarget;
         }
     }
     
@@ -1685,7 +1459,7 @@ public class StructureDetector {
      * Finds the earliest condition node that dominates all skip conditions.
      * This should be the starting point of the labeled block.
      */
-    private Node findEarliestConditionNode(List<SkipInfo> skips, List<IfStructure> ifs) {
+    private Node findEarliestConditionNode(List<SkipInfo> skips) {
         if (skips.isEmpty()) return null;
         if (skips.size() == 1) return skips.get(0).conditionNode;
         
@@ -1717,72 +1491,7 @@ public class StructureDetector {
         }
         
         return earliest != null ? earliest : skips.get(0).conditionNode;
-    }
-
-    /**
-     * Detects if 'skipBranch' directly jumps to a node that 'mainBranch' reaches through a longer path.
-     * This indicates a "skip" pattern that may need a labeled block.
-     * 
-     * A skip is detected when:
-     * 1. The skipBranch node directly jumps to a merge point or a node beyond the if structure
-     * 2. The mainBranch reaches that same node through a significantly longer path (2+ more nodes)
-     * 
-     * This avoids detecting normal if-else patterns as skips.
-     * 
-     * @param cond The condition node
-     * @param mainBranch The branch that takes the longer path
-     * @param skipBranch The branch that might be skipping
-     * @return The skip target node if a skip pattern is detected, null otherwise
-     */
-    private Node detectSkipTarget(Node cond, Node mainBranch, Node skipBranch) {
-        // A skip is only valid if the skipBranch node itself directly reaches a merge point
-        // that the mainBranch reaches through a longer path.
-        // 
-        // We check each direct successor of skipBranch to see if:
-        // 1. It's reachable from mainBranch
-        // 2. The path from mainBranch is at least 2 nodes longer
-        // 3. The skipBranch has only ONE successor (indicating it's a terminal node that jumps to merge)
-        
-        // Restriction: only consider branches with exactly one successor.
-        // This ensures we only detect true "skip" patterns where a terminal node jumps
-        // directly to a merge point, avoiding false positives from conditional nodes
-        // that have multiple paths forward.
-        if (skipBranch.succs.size() != 1) {
-            return null;
-        }
-        
-        Node potentialTarget = skipBranch.succs.get(0);
-        
-        // Check if mainBranch can reach this target
-        Set<Node> mainReachable = new HashSet<>();
-        Queue<Node> queue = new LinkedList<>();
-        queue.add(mainBranch);
-        while (!queue.isEmpty()) {
-            Node n = queue.poll();
-            if (mainReachable.contains(n)) continue;
-            mainReachable.add(n);
-            for (Node succ : n.succs) {
-                queue.add(succ);
-            }
-        }
-        
-        if (!mainReachable.contains(potentialTarget)) {
-            return null;
-        }
-        
-        // Check if mainBranch takes significantly longer to reach the target
-        int pathFromMain = shortestPathLengthTo(mainBranch, potentialTarget, new HashSet<>());
-        int pathFromSkip = 1; // skipBranch -> potentialTarget directly
-        
-        // A skip occurs when the mainBranch takes significantly longer to reach the target.
-        // We require at least 2 extra nodes to avoid detecting simple if-else merges
-        // as skip patterns.
-        if (pathFromMain > pathFromSkip + 1) {
-            return potentialTarget;
-        }
-        
-        return null;
-    }
+    }   
 
     /**
      * Computes the shortest path length from 'from' to 'to'.
@@ -2364,17 +2073,12 @@ public class StructureDetector {
      */
     private Node findCatchStartNode(TryStructure tryStruct) {
         for (Node node : tryStruct.catchBody) {
-            boolean hasExternalPred = false;
-            boolean hasTryPred = false;
             boolean hasCatchPred = false;
             
             for (Node pred : node.preds) {
                 if (tryStruct.tryBody.contains(pred)) {
-                    hasTryPred = true;
                 } else if (tryStruct.catchBody.contains(pred)) {
                     hasCatchPred = true;
-                } else {
-                    hasExternalPred = true;
                 }
             }
             
@@ -2789,7 +2493,7 @@ public class StructureDetector {
             boolean falseInSet = nodeSet.contains(ifStruct.falseBranch);
             
             // Find merge node within the set
-            Node mergeNode = null;
+            Node mergeNode;
             if (ifStruct.mergeNode != null && nodeSet.contains(ifStruct.mergeNode)) {
                 mergeNode = ifStruct.mergeNode;
             } else {
@@ -4287,7 +3991,7 @@ public class StructureDetector {
             // 1. Is reachable from multiple case bodies
             // 2. Is not outside a loop (if the switch is in a loop)
             // 3. Has the highest count of case bodies leading to it
-            Node mergeNode = null;
+            Node mergeNode;
             Map<Node, Integer> reachCount = new HashMap<>();
             
             // Detect if we're inside a loop
