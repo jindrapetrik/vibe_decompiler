@@ -2608,6 +2608,7 @@ public class StructureDetector {
     /**
      * Generates statements for a catch body that is inside a loop.
      * Handles continue statements when catch body has edges back to the loop header.
+     * Handles break statements when catch body has edges outside the loop.
      */
     private List<Statement> generateCatchBodyInLoop(Node startNode, Set<Node> catchBody, Set<Node> visited,
                                                Map<Node, LoopStructure> loopHeaders, Map<Node, IfStructure> ifConditions,
@@ -2636,6 +2637,9 @@ public class StructureDetector {
             } else if (currentLoop != null && succ.equals(currentLoop.header)) {
                 // Edge to loop header = continue statement
                 result.add(new ContinueStatement());
+            } else if (currentLoop != null && !currentLoop.body.contains(succ)) {
+                // Edge to node outside the loop = break statement
+                result.add(new BreakStatement());
             }
         }
         
@@ -4757,15 +4761,15 @@ public class StructureDetector {
             "trybody1, a, b, trybody2 => catchbody3"
         );
 
-        // Example 17: Try-Catch inside While Loop with Continue
+        // Example 17: Try-Catch inside While Loop with Break and Continue
         System.out.println();
-        runExampleWithExceptions("Example 17: Try-Catch in While Loop with Continue",
+        runExampleWithExceptions("Example 17: Try-Catch in While Loop with Break and Continue",
             "digraph {\n" +
             "  start;\n" +
             "  start->cond;\n" +
             "  cond->end;\n" +
             "  cond->a;\n" +
-            "  c1->cond;\n" +
+            "  c1->end;\n" +
             "  c2->cond;\n" +
             "  a->after_try;\n" +
             "  after_try->cond;\n" +
