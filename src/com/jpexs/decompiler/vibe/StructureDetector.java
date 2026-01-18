@@ -4072,9 +4072,11 @@ public class StructureDetector {
             boolean falseBranchExits = branchHasLabeledBreak(ifStruct.falseBranch, labeledBreakEdges, currentBlock);
             
             if (trueIsEmpty && !falseIsEmpty) {
+                // If internalMerge is null, use the outer stopAt to prevent over-generation
+                Node effectiveStopAt = internalMerge != null ? internalMerge : stopAt;
                 Set<Node> falseVisited = new HashSet<>(visited);
                 List<Statement> onTrue = generateStatementsInBlock(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, 
-                                          labeledBreakEdges, currentBlock, internalMerge);
+                                          labeledBreakEdges, currentBlock, effectiveStopAt);
                 result.add(new IfStatement(node, true, onTrue));
                 
                 if (internalMerge != null && currentBlock.body.contains(internalMerge)) {
@@ -4086,14 +4088,16 @@ public class StructureDetector {
             }
             
             if (trueBranchExits && !falseIsEmpty) {
+                // If internalMerge is null, use the outer stopAt to prevent over-generation
+                Node effectiveStopAt = internalMerge != null ? internalMerge : stopAt;
                 Set<Node> trueVisited = new HashSet<>(visited);
                 List<Statement> onTrue = generateStatementsInBlock(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, 
-                                          labeledBreakEdges, currentBlock, internalMerge);
+                                          labeledBreakEdges, currentBlock, effectiveStopAt);
                 result.add(new IfStatement(node, false, onTrue));
                 Set<Node> falseVisited = new HashSet<>(visited);
                 falseVisited.addAll(trueVisited);
                 result.addAll(generateStatementsInBlock(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, 
-                                          labeledBreakEdges, currentBlock, internalMerge));
+                                          labeledBreakEdges, currentBlock, effectiveStopAt));
                 
                 if (internalMerge != null && currentBlock.body.contains(internalMerge)) {
                     visited.addAll(falseVisited);
@@ -4104,14 +4108,16 @@ public class StructureDetector {
             }
             
             if (falseBranchExits && !trueIsEmpty) {
+                // If internalMerge is null, use the outer stopAt to prevent over-generation
+                Node effectiveStopAt = internalMerge != null ? internalMerge : stopAt;
                 Set<Node> falseVisited = new HashSet<>(visited);
                 List<Statement> onTrue = generateStatementsInBlock(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, 
-                                          labeledBreakEdges, currentBlock, internalMerge);
+                                          labeledBreakEdges, currentBlock, effectiveStopAt);
                 result.add(new IfStatement(node, true, onTrue));
                 Set<Node> trueVisited = new HashSet<>(visited);
                 trueVisited.addAll(falseVisited);
                 result.addAll(generateStatementsInBlock(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, 
-                                          labeledBreakEdges, currentBlock, internalMerge));
+                                          labeledBreakEdges, currentBlock, effectiveStopAt));
                 
                 if (internalMerge != null && currentBlock.body.contains(internalMerge)) {
                     visited.addAll(trueVisited);
@@ -4122,9 +4128,11 @@ public class StructureDetector {
             }
             
             if (falseIsEmpty && !trueIsEmpty) {
+                // If internalMerge is null, use the outer stopAt to prevent over-generation
+                Node effectiveStopAt = internalMerge != null ? internalMerge : stopAt;
                 Set<Node> trueVisited = new HashSet<>(visited);
                 List<Statement> onTrue = generateStatementsInBlock(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, 
-                                          labeledBreakEdges, currentBlock, internalMerge);
+                                          labeledBreakEdges, currentBlock, effectiveStopAt);
                 result.add(new IfStatement(node, false, onTrue));
                 
                 if (internalMerge != null && currentBlock.body.contains(internalMerge)) {
@@ -4136,13 +4144,15 @@ public class StructureDetector {
             }
             
             // Standard if-else
+            // If internalMerge is null, use the outer stopAt to prevent over-generation
+            Node effectiveStopAt = internalMerge != null ? internalMerge : stopAt;
             Set<Node> trueVisited = new HashSet<>(visited);
             List<Statement> onTrue = generateStatementsInBlock(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, 
-                                      labeledBreakEdges, currentBlock, internalMerge);
+                                      labeledBreakEdges, currentBlock, effectiveStopAt);
             
             Set<Node> falseVisited = new HashSet<>(visited);
             List<Statement> onFalse = generateStatementsInBlock(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, 
-                                      labeledBreakEdges, currentBlock, internalMerge);
+                                      labeledBreakEdges, currentBlock, effectiveStopAt);
             
             result.add(new IfStatement(node, false, onTrue, onFalse));
             
