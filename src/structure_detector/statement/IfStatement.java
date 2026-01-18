@@ -68,7 +68,7 @@ public class IfStatement extends Statement {
      * @return the true branch statements
      */
     public List<Statement> getOnTrue() {
-        return onTrue;
+        return new ArrayList<>(onTrue);
     }
     
     /**
@@ -77,7 +77,7 @@ public class IfStatement extends Statement {
      * @return the false branch statements
      */
     public List<Statement> getOnFalse() {
-        return onFalse;
+        return new ArrayList<>(onFalse);
     }
     
     /**

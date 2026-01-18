@@ -40,7 +40,7 @@ public class BlockStatement extends Statement {
      * @return the body statements
      */
     public List<Statement> getBody() {
-        return body;
+        return new ArrayList<>(body);
     }
     
     @Override
