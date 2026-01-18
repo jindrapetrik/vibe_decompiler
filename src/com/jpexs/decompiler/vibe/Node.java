@@ -5,6 +5,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Node of Control Flow Graph (CFG)
+ * @author JPEXS
+ */
 public class Node {
     private static final AtomicInteger nextId = new AtomicInteger(0);
     
