@@ -1078,7 +1078,8 @@ public class StructureDetector {
             
             if (blockStart == null) continue;
             
-            String label = "block";
+            // Generate unique label based on block start node to avoid conflicts
+            String label = blockStart.getLabel() + "_block";
             
             // Check if this block already exists
             boolean exists = false;
@@ -1203,8 +1204,10 @@ public class StructureDetector {
         // 2. The path from mainBranch is at least 2 nodes longer
         // 3. The skipBranch has only ONE successor (indicating it's a terminal node that jumps to merge)
         
-        // Only consider branches where the skip source has exactly one successor
-        // This identifies "terminal" nodes that jump directly to a merge point
+        // Restriction: only consider branches with exactly one successor.
+        // This ensures we only detect true "skip" patterns where a terminal node jumps
+        // directly to a merge point, avoiding false positives from conditional nodes
+        // that have multiple paths forward.
         if (skipBranch.succs.size() != 1) {
             return null;
         }
@@ -1232,8 +1235,9 @@ public class StructureDetector {
         int pathFromMain = shortestPathLengthTo(mainBranch, potentialTarget, new HashSet<>());
         int pathFromSkip = 1; // skipBranch -> potentialTarget directly
         
-        // A skip occurs when the mainBranch takes significantly longer to reach the target
+        // A skip occurs when the mainBranch takes significantly longer to reach the target.
         // We require at least 2 extra nodes to avoid detecting simple if-else merges
+        // as skip patterns.
         if (pathFromMain > pathFromSkip + 1) {
             return potentialTarget;
         }
@@ -2272,14 +2276,12 @@ public class StructureDetector {
             return;
         }
         
-        // Check if this regular node leads outside the block (needs a labeled break)
+        // Check if this regular node leads outside the block
         boolean leadsOutside = false;
         for (Node succ : node.succs) {
-            // If the node's only successor is the block end, this is the natural end of the block.
-            // We don't need to add "break" - just output the node and the block will end.
+            // Natural end of block: node's only successor is the block end
             if (succ.equals(currentBlock.endNode) && node.succs.size() == 1) {
                 sb.append(indent).append(node.getLabel()).append(";\n");
-                // No break needed - natural fall-through to block end
                 return;
             }
             if (!currentBlock.body.contains(succ)) {
@@ -2290,13 +2292,13 @@ public class StructureDetector {
         // Regular node
         sb.append(indent).append(node.getLabel()).append(";\n");
         
-        // Continue with successors inside the block (natural fall-through to end doesn't need break)
+        // Continue with successors inside the block
         for (Node succ : node.succs) {
             if (currentBlock.body.contains(succ)) {
                 generatePseudocodeInBlock(succ, visited, sb, indent, loopHeaders, ifConditions, 
                                           labeledBreakEdges, currentBlock);
             } else if (leadsOutside && succ.equals(currentBlock.endNode)) {
-                // Explicit break to block end
+                // Need explicit break when inside control flow that leads outside
                 sb.append(indent).append("break ").append(currentBlock.label).append(";\n");
             }
         }
