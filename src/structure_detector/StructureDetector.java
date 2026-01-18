@@ -910,45 +910,249 @@ public class StructureDetector {
                 }
             }
             
-            // If there are paths to the back-edge source, we need a labeled block
-            if (needsLabeledBlock) {
-                // Find the start of the loop body (first node after header that enters the body)
-                Node bodyStart = null;
-                for (Node succ : loop.header.succs) {
-                    if (loop.body.contains(succ) && !succ.equals(loop.header)) {
-                        bodyStart = succ;
+            // Skip the big block creation - we use detectSkipBlocksInLoops for multiple distinct blocks
+            // The old logic created one big block from bodyStart to backEdgeSource, but that's
+            // not correct when there are multiple independent skip patterns within the loop.
+        }
+        
+        // Now detect skip blocks within loops (separate labeled blocks for skip patterns)
+        detectSkipBlocksInLoops(loops, mainLoops);
+    }
+    
+    /**
+     * Detects labeled blocks for skip patterns within loops.
+     * These are patterns where one branch of an if skips directly to a merge point
+     * within the same loop iteration.
+     */
+    private void detectSkipBlocksInLoops(List<LoopStructure> loops, Map<Node, LoopStructure> mainLoops) {
+        List<IfStructure> ifs = detectIfs();
+        
+        // First, collect all skip patterns grouped by their merge node
+        Map<Node, List<SkipPattern>> skipsByMerge = new LinkedHashMap<>();
+        
+        for (LoopStructure loop : mainLoops.values()) {
+            for (IfStructure ifStruct : ifs) {
+                Node cond = ifStruct.conditionNode;
+                if (!loop.body.contains(cond)) continue;
+                
+                Node trueBranch = ifStruct.trueBranch;
+                Node falseBranch = ifStruct.falseBranch;
+                Node mergeNode = ifStruct.mergeNode;
+                
+                if (trueBranch == null || falseBranch == null) continue;
+                if (mergeNode == null) continue;
+                if (!loop.body.contains(mergeNode)) continue;
+                
+                // Check true branch for skip
+                Node skipSource = findDirectJumpToMergeInLoop(trueBranch, mergeNode, loop);
+                if (skipSource != null) {
+                    skipsByMerge.computeIfAbsent(mergeNode, k -> new ArrayList<>())
+                               .add(new SkipPattern(cond, skipSource, mergeNode, loop));
+                }
+                
+                // Check false branch for skip
+                skipSource = findDirectJumpToMergeInLoop(falseBranch, mergeNode, loop);
+                if (skipSource != null) {
+                    skipsByMerge.computeIfAbsent(mergeNode, k -> new ArrayList<>())
+                               .add(new SkipPattern(cond, skipSource, mergeNode, loop));
+                }
+            }
+        }
+        
+        // For each merge point, find the outermost condition that needs a block
+        for (Map.Entry<Node, List<SkipPattern>> entry : skipsByMerge.entrySet()) {
+            Node mergeNode = entry.getKey();
+            List<SkipPattern> patterns = entry.getValue();
+            
+            if (patterns.isEmpty()) continue;
+            
+            // Find the earliest condition node that dominates all skip patterns for this merge
+            Node blockStart = findEarliestSkipBlockStart(patterns, ifs);
+            
+            if (blockStart != null && !blockStart.equals(mergeNode)) {
+                String label = blockStart.getLabel() + "_block";
+                
+                // Check if this block already exists
+                boolean exists = false;
+                for (LabeledBlockStructure block : labeledBlocks) {
+                    if (block.startNode.equals(blockStart) && block.endNode.equals(mergeNode)) {
+                        exists = true;
                         break;
                     }
                 }
                 
-                if (bodyStart != null) {
-                    // Find the correct block end - the node where continue paths converge
-                    // This is the entry point to the "continue chain" that leads to backEdgeSource
-                    Node blockEnd = findContinueBlockEnd(loop, backEdgeSource);
-                    
-                    // Skip labeled block creation if blockEnd is null (e.g., bodyStart == blockEnd)
-                    if (blockEnd == null) {
-                        continue;
-                    }
-                    
-                    // Create a labeled block from bodyStart to blockEnd
-                    String label = loop.header.getLabel() + "_cont";
-                    
-                    // Check if this block already exists
-                    boolean exists = false;
-                    for (LabeledBlockStructure block : labeledBlocks) {
-                        if (block.startNode.equals(bodyStart) && block.endNode.equals(blockEnd)) {
-                            exists = true;
+                if (!exists) {
+                    LoopStructure loop = patterns.get(0).loop;
+                    addLabeledBlock(label, blockStart, mergeNode, mainLoops);
+                }
+            }
+        }
+    }
+    
+    // Helper class for skip patterns
+    private static class SkipPattern {
+        Node condNode;
+        Node skipSource;
+        Node mergeNode;
+        LoopStructure loop;
+        
+        SkipPattern(Node condNode, Node skipSource, Node mergeNode, LoopStructure loop) {
+            this.condNode = condNode;
+            this.skipSource = skipSource;
+            this.mergeNode = mergeNode;
+            this.loop = loop;
+        }
+    }
+    
+    /**
+     * Finds the earliest condition node that should start a skip block,
+     * ensuring we don't create nested blocks.
+     */
+    private Node findEarliestSkipBlockStart(List<SkipPattern> patterns, List<IfStructure> ifs) {
+        // Find the condition that is NOT reachable from any other condition in patterns
+        Node earliest = null;
+        for (SkipPattern pattern : patterns) {
+            Node cond = pattern.condNode;
+            
+            // Check if this condition is reachable from any other condition
+            boolean reachableFromOther = false;
+            for (SkipPattern other : patterns) {
+                if (other == pattern) continue;
+                if (isReachableWithinLoop(other.condNode, cond, pattern.loop)) {
+                    reachableFromOther = true;
+                    break;
+                }
+            }
+            
+            if (!reachableFromOther) {
+                // This condition is not reachable from others, so it's a candidate for earliest
+                // But we also need to check if there's a parent condition that leads to this
+                Node parent = findParentConditionForSkip(cond, pattern.mergeNode, pattern.loop, ifs);
+                if (parent != null) {
+                    // Use the parent as the earliest if it's not already in patterns
+                    boolean parentInPatterns = false;
+                    for (SkipPattern p : patterns) {
+                        if (p.condNode.equals(parent)) {
+                            parentInPatterns = true;
                             break;
                         }
                     }
-                    
-                    if (!exists) {
-                        addLabeledBlock(label, bodyStart, blockEnd, mainLoops);
+                    if (!parentInPatterns) {
+                        if (earliest == null || isReachableWithinLoop(parent, earliest, pattern.loop)) {
+                            earliest = parent;
+                        }
+                    }
+                }
+                
+                if (earliest == null || isReachableWithinLoop(cond, earliest, pattern.loop)) {
+                    earliest = cond;
+                }
+            }
+        }
+        
+        return earliest;
+    }
+    
+    /**
+     * Finds a parent condition node that leads to this condition and also has paths to mergeNode.
+     */
+    private Node findParentConditionForSkip(Node cond, Node mergeNode, LoopStructure loop, List<IfStructure> ifs) {
+        // Check each predecessor of cond
+        for (Node pred : cond.preds) {
+            if (!loop.body.contains(pred)) continue;
+            if (pred.equals(loop.header)) continue;
+            
+            // Check if pred is a condition node
+            for (IfStructure ifStruct : ifs) {
+                if (ifStruct.conditionNode.equals(pred)) {
+                    // Check if both branches eventually lead to paths that reach mergeNode or cond
+                    if (isReachableWithinLoop(ifStruct.trueBranch, cond, loop) ||
+                        isReachableWithinLoop(ifStruct.falseBranch, cond, loop)) {
+                        // This is a potential parent
+                        // Recursively check for even earlier parent
+                        Node grandparent = findParentConditionForSkip(pred, mergeNode, loop, ifs);
+                        return grandparent != null ? grandparent : pred;
                     }
                 }
             }
         }
+        return null;
+    }
+    
+    /**
+     * Finds a node in the branch that directly jumps to the merge point within a loop.
+     */
+    private Node findDirectJumpToMergeInLoop(Node branchStart, Node mergeNode, LoopStructure loop) {
+        Set<Node> visited = new HashSet<>();
+        Queue<Node> queue = new LinkedList<>();
+        queue.add(branchStart);
+        
+        while (!queue.isEmpty()) {
+            Node current = queue.poll();
+            if (visited.contains(current)) continue;
+            visited.add(current);
+            
+            // Don't go outside the loop
+            if (!loop.body.contains(current)) continue;
+            // Found: current has a direct edge to merge
+            for (Node succ : current.succs) {
+                if (succ.equals(mergeNode)) {
+                    return current;
+                }
+            }
+            
+            // Don't follow through conditional nodes (they create their own paths)
+            if (current.succs.size() <= 1) {
+                for (Node succ : current.succs) {
+                    if (loop.body.contains(succ) && !succ.equals(mergeNode)) {
+                        queue.add(succ);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Finds the block start for a skip pattern in a loop.
+     * This traces back from the condition to find the earliest condition node
+     * that leads to both the skip source and non-skip paths.
+     */
+    private Node findBlockStartInLoop(Node cond, Node skipSource, Node mergeNode, LoopStructure loop, List<IfStructure> ifs) {
+        // Find the condition node that dominates this skip pattern
+        // Start from cond and trace backwards to find the earliest related condition
+        
+        // First, check if there's a parent condition that encompasses this skip
+        for (IfStructure parentIf : ifs) {
+            if (!loop.body.contains(parentIf.conditionNode)) continue;
+            if (parentIf.conditionNode.equals(cond)) continue;
+            
+            // Check if this parent if leads to cond through its body
+            if (isReachableWithinLoop(parentIf.trueBranch, cond, loop) ||
+                isReachableWithinLoop(parentIf.falseBranch, cond, loop)) {
+                // If the parent's merge is the same as our merge, use parent as block start
+                if (parentIf.mergeNode != null && parentIf.mergeNode.equals(mergeNode)) {
+                    return parentIf.conditionNode;
+                }
+            }
+        }
+        
+        // No parent found, check if cond itself has an ancestor in the loop
+        // that should be the block start
+        for (Node pred : cond.preds) {
+            if (loop.body.contains(pred) && !pred.equals(loop.header)) {
+                // Check if this pred is a condition node
+                for (IfStructure predIf : ifs) {
+                    if (predIf.conditionNode.equals(pred)) {
+                        // Check if pred's successor is a better block start
+                        // by seeing if it also leads to mergeNode through other paths
+                        return predIf.conditionNode;
+                    }
+                }
+            }
+        }
+        
+        return cond;
     }
     
     /**
@@ -3044,11 +3248,10 @@ public class StructureDetector {
         System.out.println("--- Graphviz/DOT ---");
         System.out.println(detector9.toGraphviz());
 
-        // Example 10: Two parts - first part similar to Example 9, followed by a while loop
-        // containing a similar nested if structure
+        // Example 10: Two nested while loops with labeled blocks inside
         // The expected pseudocode should have:
-        // - A labeled block in the while loop (start2_cont)
-        // - Nodes A12, d2 should NOT be duplicated in the code
+        // - start2_loop with two labeled blocks (ifex2_block and ifex3_block)
+        // - Nodes should NOT be duplicated in the code
         System.out.println("\n===== Example 10: Nested Ifs with While Loop =====");
         StructureDetector detector10 = StructureDetector.fromGraphviz(
             "digraph {\n" +
@@ -3063,9 +3266,9 @@ public class StructureDetector {
             "  A1->d;\n" +
             "  d->A2;\n" +
             "  A2->start2;\n" +
-            "  start2->ifex;\n" +
-            "  ifex->end;\n" +
-            "  ifex->ifa2;\n" +
+            "  start2->ifex2;\n" +
+            "  ifex2->end;\n" +
+            "  ifex2->ifa2;\n" +
             "  ifa2->x2;\n" +
             "  ifa2->A12;\n" +
             "  x2->ifc2;\n" +
@@ -3075,7 +3278,20 @@ public class StructureDetector {
             "  z2->A12;\n" +
             "  A12->d2;\n" +
             "  d2->A22;\n" +
-            "  A22->start2;\n" +
+            "  A22->start3;\n" +
+            "  start3->ifex3;\n" +
+            "  ifex3->end;\n" +
+            "  ifex3->ifa3;\n" +
+            "  ifa3->x3;\n" +
+            "  ifa3->A13;\n" +
+            "  x3->ifc3;\n" +
+            "  ifc3->y3;\n" +
+            "  ifc3->z3;\n" +
+            "  y3->A23;\n" +
+            "  z3->A13;\n" +
+            "  A13->d3;\n" +
+            "  d3->A23;\n" +
+            "  A23->start2;\n" +
             "}"
         );
         detector10.analyze();
