@@ -3231,10 +3231,12 @@ public class StructureDetector {
             nodesInLoops.addAll(loop.body);
         }
         
-        // Build a map of condition nodes for quick lookup
+        // Build maps for quick lookup
         Set<Node> conditionNodes = new HashSet<>();
+        Map<Node, IfStructure> ifMap = new HashMap<>();
         for (IfStructure ifStruct : ifs) {
             conditionNodes.add(ifStruct.conditionNode);
+            ifMap.put(ifStruct.conditionNode, ifStruct);
         }
         
         // Look for chains of conditions
@@ -3258,14 +3260,8 @@ public class StructureDetector {
             Node mergeNode = null;
             
             while (currentCond != null && !processedNodes.contains(currentCond)) {
-                // Find the if structure for this condition
-                IfStructure currentIf = null;
-                for (IfStructure i : ifs) {
-                    if (i.conditionNode.equals(currentCond)) {
-                        currentIf = i;
-                        break;
-                    }
-                }
+                // Find the if structure for this condition using the lookup map
+                IfStructure currentIf = ifMap.get(currentCond);
                 
                 if (currentIf == null || currentIf.trueBranch == null || currentIf.falseBranch == null) {
                     break;
@@ -3298,7 +3294,7 @@ public class StructureDetector {
                     for (Node caseBodyNode : allCaseBodies) {
                         Set<Node> reachable = getReachableNodes(caseBodyNode);
                         if (commonReachable == null) {
-                            commonReachable = reachable;
+                            commonReachable = new HashSet<>(reachable);
                         } else {
                             commonReachable.retainAll(reachable);
                         }
@@ -3337,36 +3333,6 @@ public class StructureDetector {
         return switches;
     }
     
-    /**
-     * Finds a common successor node of two nodes.
-     */
-    private Node findCommonSuccessor(Node a, Node b) {
-        Set<Node> aReachable = getReachableNodes(a);
-        Set<Node> bReachable = getReachableNodes(b);
-        
-        // Find nodes reachable from both
-        aReachable.retainAll(bReachable);
-        
-        if (aReachable.isEmpty()) {
-            return null;
-        }
-        
-        // Return the closest common successor (first one that either reaches directly)
-        for (Node succ : a.succs) {
-            if (aReachable.contains(succ)) {
-                return succ;
-            }
-        }
-        for (Node succ : b.succs) {
-            if (aReachable.contains(succ)) {
-                return succ;
-            }
-        }
-        
-        // Return any common reachable node
-        return aReachable.iterator().next();
-    }
-
     /**
      * Detects all control flow structures in the CFG.
      */
