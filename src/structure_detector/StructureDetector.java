@@ -158,11 +158,59 @@ public class StructureDetector {
         }
     }
 
+    /**
+     * Represents a switch structure detected in the CFG.
+     * A switch is detected when there's a chain of conditional nodes where each has:
+     * - One branch going to the next condition (fall-through)
+     * - One branch going to a case body
+     * - All case bodies lead to the same merge node
+     */
+    public static class SwitchStructure {
+        public final Node startNode;         // first condition node
+        public final List<SwitchCase> cases; // list of cases
+        public final Node mergeNode;         // where all cases converge (e.g., "end")
+        
+        public SwitchStructure(Node startNode, List<SwitchCase> cases, Node mergeNode) {
+            this.startNode = startNode;
+            this.cases = new ArrayList<>(cases);
+            this.mergeNode = mergeNode;
+        }
+        
+        @Override
+        public String toString() {
+            return "Switch{start=" + startNode + ", cases=" + cases.size() + ", merge=" + mergeNode + "}";
+        }
+    }
+    
+    /**
+     * Represents a single case in a switch structure.
+     */
+    public static class SwitchCase {
+        public final Node conditionNode;  // the condition node (e.g., "if1")
+        public final Node caseBody;       // the case body node (e.g., "case1")
+        public final boolean isDefault;   // true if this is the default case
+        
+        public SwitchCase(Node conditionNode, Node caseBody, boolean isDefault) {
+            this.conditionNode = conditionNode;
+            this.caseBody = caseBody;
+            this.isDefault = isDefault;
+        }
+        
+        @Override
+        public String toString() {
+            if (isDefault) {
+                return "default:" + caseBody;
+            }
+            return "case " + conditionNode + ":" + caseBody;
+        }
+    }
+
     private static final String RETURN_BLOCK_LABEL = "r_block";
     
     private final List<Node> allNodes;
     private final Node entryNode;
     private final List<LabeledBlockStructure> labeledBlocks = new ArrayList<>();
+    private final List<SwitchStructure> switchStructures = new ArrayList<>();
 
     /**
      * Creates a new StructureDetector for the given CFG.
@@ -1890,6 +1938,10 @@ public class StructureDetector {
         List<LoopStructure> loops = detectLoops();
         List<IfStructure> ifs = detectIfs();
         
+        // Automatically detect switch structures
+        switchStructures.clear();
+        switchStructures.addAll(detectSwitches(ifs));
+        
         // Automatically detect labeled blocks for continue semantics
         detectContinueBlocks(loops);
         
@@ -1912,6 +1964,12 @@ public class StructureDetector {
         Map<Node, IfStructure> ifConditions = new HashMap<>();
         for (IfStructure ifStruct : ifs) {
             ifConditions.put(ifStruct.conditionNode, ifStruct);
+        }
+        
+        // Create lookup map for switch structures (by start node)
+        Map<Node, SwitchStructure> switchStarts = new HashMap<>();
+        for (SwitchStructure sw : switchStructures) {
+            switchStarts.put(sw.startNode, sw);
         }
         
         // Create lookup maps for labeled blocks (exclude return block from starts to not interfere with loops)
@@ -1958,13 +2016,13 @@ public class StructureDetector {
             // Generate the rest of the code inside the block
             List<Statement> blockBody = new ArrayList<>();
             for (Node succ : entryNode.succs) {
-                blockBody.addAll(generateStatements(succ, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, null, returnBlock, null));
+                blockBody.addAll(generateStatements(succ, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, null, returnBlock, null, switchStarts));
             }
             
             // Add return block
             result.add(new BlockStatement(returnBlock.label, blockBody));
         } else {
-            result.addAll(generateStatements(entryNode, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, null, null, null));
+            result.addAll(generateStatements(entryNode, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, null, null, null, switchStarts));
         }
         
         return result;
@@ -2275,7 +2333,8 @@ public class StructureDetector {
                                                Map<Node, LoopStructure> loopHeaders, Map<Node, IfStructure> ifConditions,
                                                Map<Node, LabeledBlockStructure> blockStarts, Map<Node, LabeledBreakEdge> labeledBreakEdges,
                                                Set<Node> loopsNeedingLabels,
-                                               LoopStructure currentLoop, LabeledBlockStructure currentBlock, Node stopAt) {
+                                               LoopStructure currentLoop, LabeledBlockStructure currentBlock, Node stopAt,
+                                               Map<Node, SwitchStructure> switchStarts) {
         List<Statement> result = new ArrayList<>();
         
         if (node == null || visited.contains(node)) {
@@ -2284,6 +2343,47 @@ public class StructureDetector {
         
         // Stop at merge node, loop exit, or block end
         if (stopAt != null && node.equals(stopAt)) {
+            return result;
+        }
+        
+        // Check if this is a switch start node
+        SwitchStructure switchStruct = switchStarts != null ? switchStarts.get(node) : null;
+        if (switchStruct != null) {
+            // Generate switch statement
+            List<SwitchStatement.Case> switchCases = new ArrayList<>();
+            
+            for (SwitchCase sc : switchStruct.cases) {
+                List<Statement> caseBody = new ArrayList<>();
+                // Add the case body node as a statement
+                if (sc.caseBody != null) {
+                    caseBody.add(new ExpressionStatement(sc.caseBody.getLabel()));
+                }
+                // Add break statement
+                caseBody.add(new BreakStatement());
+                
+                if (sc.isDefault) {
+                    switchCases.add(new SwitchStatement.Case(caseBody));
+                } else {
+                    switchCases.add(new SwitchStatement.Case(sc.conditionNode.getLabel(), caseBody));
+                }
+            }
+            
+            result.add(new SwitchStatement(switchCases));
+            
+            // Mark all switch nodes as visited
+            for (SwitchCase sc : switchStruct.cases) {
+                if (sc.conditionNode != null) {
+                    visited.add(sc.conditionNode);
+                }
+                if (sc.caseBody != null) {
+                    visited.add(sc.caseBody);
+                }
+            }
+            
+            // Continue after the switch (at the merge node)
+            if (switchStruct.mergeNode != null) {
+                result.addAll(generateStatements(switchStruct.mergeNode, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+            }
             return result;
         }
         
@@ -2302,7 +2402,7 @@ public class StructureDetector {
             visited.add(node);
             visited.addAll(blockVisited);
             result.addAll(generateStatements(block.endNode, visited, loopHeaders, ifConditions, 
-                              blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, null, stopAt));
+                              blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, null, stopAt, switchStarts));
             return result;
         }
         
@@ -2324,11 +2424,11 @@ public class StructureDetector {
                     onTrue.add(new BreakStatement(labeledBreak.label));
                     Set<Node> elseVisited = new HashSet<>(visited);
                     onFalse.addAll(generateStatements(ifStruct.falseBranch, elseVisited, loopHeaders, ifConditions, 
-                                      blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt));
+                                      blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
                 } else {
                     Set<Node> thenVisited = new HashSet<>(visited);
                     onTrue.addAll(generateStatements(ifStruct.trueBranch, thenVisited, loopHeaders, ifConditions, 
-                                      blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt));
+                                      blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
                     onFalse.add(new BreakStatement(labeledBreak.label));
                 }
                 
@@ -2377,7 +2477,7 @@ public class StructureDetector {
             
             // Continue after the loop
             if (loopExit != null) {
-                result.addAll(generateStatements(loopExit, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt));
+                result.addAll(generateStatements(loopExit, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
             }
             return result;
         }
@@ -2392,22 +2492,22 @@ public class StructureDetector {
             if (trueIsEmpty && !falseIsEmpty) {
                 // Negate condition: if (cond) {} else { X } -> if (!cond) { X }
                 Set<Node> falseVisited = new HashSet<>(visited);
-                List<Statement> onTrue = generateStatements(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode);
+                List<Statement> onTrue = generateStatements(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
                 result.add(new IfStatement(node.getLabel(), true, onTrue));
                 
                 if (ifStruct.mergeNode != null) {
                     visited.addAll(falseVisited);
-                    result.addAll(generateStatements(ifStruct.mergeNode, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt));
+                    result.addAll(generateStatements(ifStruct.mergeNode, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
                 }
                 return result;
             }
             
             // Standard if-else
             Set<Node> trueVisited = new HashSet<>(visited);
-            List<Statement> onTrue = generateStatements(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode);
+            List<Statement> onTrue = generateStatements(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
             
             Set<Node> falseVisited = new HashSet<>(visited);
-            List<Statement> onFalse = generateStatements(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode);
+            List<Statement> onFalse = generateStatements(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
             
             result.add(new IfStatement(node.getLabel(), false, onTrue, onFalse));
             
@@ -2415,7 +2515,7 @@ public class StructureDetector {
             if (ifStruct.mergeNode != null) {
                 visited.addAll(trueVisited);
                 visited.addAll(falseVisited);
-                result.addAll(generateStatements(ifStruct.mergeNode, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt));
+                result.addAll(generateStatements(ifStruct.mergeNode, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
             }
             return result;
         }
@@ -2425,7 +2525,7 @@ public class StructureDetector {
         
         // Continue with successors
         for (Node succ : node.succs) {
-            result.addAll(generateStatements(succ, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt));
+            result.addAll(generateStatements(succ, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
         }
         
         return result;
@@ -3109,6 +3209,165 @@ public class StructureDetector {
     }
 
     /**
+     * Detects switch structures in the CFG.
+     * 
+     * A switch structure is detected when there's a chain of conditional nodes where:
+     * - Each condition's TRUE branch goes to the next condition (fall-through to next check)
+     * - Each condition's FALSE branch goes to a case body
+     * - All case bodies eventually lead to the same merge node
+     * - Cases may have fall-through edges to the next case
+     * 
+     * @param ifs the detected if structures
+     * @return list of detected switch structures
+     */
+    private List<SwitchStructure> detectSwitches(List<IfStructure> ifs) {
+        List<SwitchStructure> switches = new ArrayList<>();
+        Set<Node> processedNodes = new HashSet<>();
+        
+        // Get nodes in loops to skip (switch detection is for non-loop patterns)
+        List<LoopStructure> loops = detectLoops();
+        Set<Node> nodesInLoops = new HashSet<>();
+        for (LoopStructure loop : loops) {
+            nodesInLoops.addAll(loop.body);
+        }
+        
+        // Build a map of condition nodes for quick lookup
+        Set<Node> conditionNodes = new HashSet<>();
+        for (IfStructure ifStruct : ifs) {
+            conditionNodes.add(ifStruct.conditionNode);
+        }
+        
+        // Look for chains of conditions
+        for (IfStructure ifStruct : ifs) {
+            Node startCond = ifStruct.conditionNode;
+            
+            // Skip if already part of a detected switch or in a loop
+            if (processedNodes.contains(startCond) || nodesInLoops.contains(startCond)) {
+                continue;
+            }
+            
+            // Check if this node's TRUE branch leads to another condition (switch pattern)
+            // In a switch pattern: true branch -> next condition, false branch -> case body
+            if (!conditionNodes.contains(ifStruct.trueBranch)) {
+                continue; // Not a switch pattern - true branch should be another condition
+            }
+            
+            // Try to build a switch chain starting from this condition
+            List<SwitchCase> cases = new ArrayList<>();
+            Node currentCond = startCond;
+            Node mergeNode = null;
+            
+            while (currentCond != null && !processedNodes.contains(currentCond)) {
+                // Find the if structure for this condition
+                IfStructure currentIf = null;
+                for (IfStructure i : ifs) {
+                    if (i.conditionNode.equals(currentCond)) {
+                        currentIf = i;
+                        break;
+                    }
+                }
+                
+                if (currentIf == null || currentIf.trueBranch == null || currentIf.falseBranch == null) {
+                    break;
+                }
+                
+                Node trueBranch = currentIf.trueBranch;
+                Node falseBranch = currentIf.falseBranch;
+                
+                // In switch pattern: false branch is the case body
+                Node caseBody = falseBranch;
+                cases.add(new SwitchCase(currentCond, caseBody, false));
+                
+                // Check if true branch is another condition (chain continues)
+                if (conditionNodes.contains(trueBranch)) {
+                    currentCond = trueBranch;
+                } else {
+                    // True branch is the default case (last in the chain)
+                    cases.add(new SwitchCase(null, trueBranch, true));
+                    
+                    // Find the merge node - should be reachable from all case bodies
+                    Set<Node> allCaseBodies = new HashSet<>();
+                    for (SwitchCase sc : cases) {
+                        if (sc.caseBody != null) {
+                            allCaseBodies.add(sc.caseBody);
+                        }
+                    }
+                    
+                    // Find common successor of all case bodies
+                    Set<Node> commonReachable = null;
+                    for (Node caseBodyNode : allCaseBodies) {
+                        Set<Node> reachable = getReachableNodes(caseBodyNode);
+                        if (commonReachable == null) {
+                            commonReachable = reachable;
+                        } else {
+                            commonReachable.retainAll(reachable);
+                        }
+                    }
+                    
+                    if (commonReachable != null && !commonReachable.isEmpty()) {
+                        // Find the closest common node (first direct successor of any case body)
+                        for (Node caseBodyNode : allCaseBodies) {
+                            for (Node succ : caseBodyNode.succs) {
+                                if (commonReachable.contains(succ)) {
+                                    mergeNode = succ;
+                                    break;
+                                }
+                            }
+                            if (mergeNode != null) break;
+                        }
+                    }
+                    
+                    break; // End of switch chain
+                }
+            }
+            
+            // We have a valid switch if we found at least 2 cases (including default)
+            if (cases.size() >= 2 && mergeNode != null) {
+                // Mark all condition nodes as processed
+                for (SwitchCase c : cases) {
+                    if (c.conditionNode != null) {
+                        processedNodes.add(c.conditionNode);
+                    }
+                }
+                
+                switches.add(new SwitchStructure(startCond, cases, mergeNode));
+            }
+        }
+        
+        return switches;
+    }
+    
+    /**
+     * Finds a common successor node of two nodes.
+     */
+    private Node findCommonSuccessor(Node a, Node b) {
+        Set<Node> aReachable = getReachableNodes(a);
+        Set<Node> bReachable = getReachableNodes(b);
+        
+        // Find nodes reachable from both
+        aReachable.retainAll(bReachable);
+        
+        if (aReachable.isEmpty()) {
+            return null;
+        }
+        
+        // Return the closest common successor (first one that either reaches directly)
+        for (Node succ : a.succs) {
+            if (aReachable.contains(succ)) {
+                return succ;
+            }
+        }
+        for (Node succ : b.succs) {
+            if (aReachable.contains(succ)) {
+                return succ;
+            }
+        }
+        
+        // Return any common reachable node
+        return aReachable.iterator().next();
+    }
+
+    /**
      * Detects all control flow structures in the CFG.
      */
     public void analyze() {
@@ -3128,6 +3387,15 @@ public class StructureDetector {
         System.out.println("Detected Loop Structures (" + loops.size() + "):");
         for (LoopStructure loop : loops) {
             System.out.println("  " + loop);
+        }
+        System.out.println();
+        
+        // Auto-detect switch structures
+        switchStructures.clear();
+        switchStructures.addAll(detectSwitches(ifs));
+        System.out.println("Detected Switch Structures (" + switchStructures.size() + "):");
+        for (SwitchStructure sw : switchStructures) {
+            System.out.println("  " + sw);
         }
         System.out.println();
         
@@ -3390,6 +3658,32 @@ public class StructureDetector {
             "  A13->d3;\n" +
             "  d3->A23;\n" +
             "  A23->start2;\n" +
+            "}",
+            true
+        );
+
+        // Example 11: Switch-like chain of conditions
+        System.out.println();
+        runExample("Example 11: Switch-like Chain of Conditions",
+            "digraph {\n" +
+            "  start->if1;\n" +
+            "  if1->if2;\n" +
+            "  if2->if3;\n" +
+            "  if3->if4;\n" +
+            "  if4->d;\n" +
+            "  if1->case1;\n" +
+            "  if2->case2;\n" +
+            "  if3->case3;\n" +
+            "  if4->case4;\n" +
+            "  case1->end;\n" +
+            "  case2->end;\n" +
+            "  case3->end;\n" +
+            "  case4->end;\n" +
+            "  d->end;\n" +
+            "  case1->case2;\n" +
+            "  case2->case3;\n" +
+            "  case3->case4;\n" +
+            "  case4->d;\n" +
             "}",
             true
         );
