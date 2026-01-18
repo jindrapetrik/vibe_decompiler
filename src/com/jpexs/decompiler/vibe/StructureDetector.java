@@ -2949,6 +2949,19 @@ public class StructureDetector {
             // Continue after the loop
             if (loopExit != null) {
                 result.addAll(generateStatements(loopExit, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+            } else if (!loop.breaks.isEmpty()) {
+                // No natural exit from loop header, but there are breaks - output the common break target
+                Node breakTarget = loop.breaks.get(0).to;
+                boolean allBreaksToSameTarget = true;
+                for (BreakEdge breakEdge : loop.breaks) {
+                    if (!breakEdge.to.equals(breakTarget)) {
+                        allBreaksToSameTarget = false;
+                        break;
+                    }
+                }
+                if (allBreaksToSameTarget && !visited.contains(breakTarget)) {
+                    result.addAll(generateStatements(breakTarget, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+                }
             }
             return result;
         }
