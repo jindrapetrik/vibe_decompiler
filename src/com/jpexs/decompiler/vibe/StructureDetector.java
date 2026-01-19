@@ -3936,7 +3936,7 @@ public class StructureDetector {
                     
                     if (trueBranchTarget != null && trueBranchTarget.isContinue) {
                         List<Node> path = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
-                        List<Statement> continueBody = outputPathAndContinueStatements(path, trueBranchTarget.breakLabel, trueBranchTarget.breakLabelId);
+                        List<Statement> continueBody = outputPathAndContinueStatements(path, trueBranchTarget.breakLabel, trueBranchTarget.breakLabelId, currentLoop);
                         result.add(new IfStatement(node, false, continueBody));
                         
                         // Continue with false branch at same indent level (flattened)
@@ -4077,7 +4077,7 @@ public class StructureDetector {
                 if (trueBranchTarget != null) {
                     List<Node> path = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
                     if (trueBranchTarget.isContinue) {
-                        onTrue.addAll(outputPathAndContinueStatements(path, trueBranchTarget.breakLabel, trueBranchTarget.breakLabelId));
+                        onTrue.addAll(outputPathAndContinueStatements(path, trueBranchTarget.breakLabel, trueBranchTarget.breakLabelId, currentLoop));
                     } else {
                         onTrue.addAll(outputPathAndBreakStatements(path, trueBranchTarget.breakLabel, trueBranchTarget.breakLabelId, currentLoop, currentBlock, trueBranchTarget.target));
                     }
@@ -4143,7 +4143,7 @@ public class StructureDetector {
                     
                     // Normal continue handling - no break in false branch
                     List<Node> path = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
-                    List<Statement> continueBody = outputPathAndContinueStatements(path, trueBranchTarget.breakLabel, trueBranchTarget.breakLabelId);
+                    List<Statement> continueBody = outputPathAndContinueStatements(path, trueBranchTarget.breakLabel, trueBranchTarget.breakLabelId, currentLoop);
                     result.add(new IfStatement(node, false, continueBody));
                     
                     // Continue with false branch flattened
@@ -4178,7 +4178,7 @@ public class StructureDetector {
                         }
                     } else if (falseBranchTarget.isContinue) {
                         // False branch is a continue - output continue instead of break
-                        result.addAll(outputPathAndContinueStatements(falsePath, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId));
+                        result.addAll(outputPathAndContinueStatements(falsePath, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId, currentLoop));
                     } else {
                         result.addAll(outputPathAndBreakStatements(falsePath, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId, currentLoop, currentBlock, falseBranchTarget.target));
                     }
@@ -4235,7 +4235,7 @@ public class StructureDetector {
             if (falseBranchTarget != null && falseBranchTarget.isContinue && trueBranchTarget == null) {
                 // Generate: if (!cond) { continue; } trueBranch;
                 List<Node> path = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
-                List<Statement> continueBody = outputPathAndContinueStatements(path, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId);
+                List<Statement> continueBody = outputPathAndContinueStatements(path, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId, currentLoop);
                 result.add(new IfStatement(node, true, continueBody));  // negated condition
                 // After the if, continue with the true branch (flattened)
                 Set<Node> trueVisited = new HashSet<>(visited);
@@ -4251,7 +4251,7 @@ public class StructureDetector {
             if (falseBranchTarget != null) {
                 List<Node> path = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                 if (falseBranchTarget.isContinue) {
-                    onTrue.addAll(outputPathAndContinueStatements(path, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId));
+                    onTrue.addAll(outputPathAndContinueStatements(path, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId, currentLoop));
                 } else {
                     onTrue.addAll(outputPathAndBreakStatements(path, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId, currentLoop, currentBlock, falseBranchTarget.target));
                 }
@@ -4410,18 +4410,21 @@ public class StructureDetector {
         return result;
     }
     
-    private List<Statement> outputPathAndContinueStatements(List<Node> path, String continueLabel, int continueLabelId) {
+    private List<Statement> outputPathAndContinueStatements(List<Node> path, String continueLabel, int continueLabelId, LoopStructure currentLoop) {
         List<Statement> result = new ArrayList<>();
         
         for (Node n : path) {
             result.add(new ExpressionStatement(n));
         }
         
+        // If continueLabelId is -1 (innermost loop continue), use the current loop's label ID
+        int labelId = continueLabelId >= 0 ? continueLabelId : getLoopLabelId(currentLoop.header);
+        
         if (continueLabel != null && !continueLabel.isEmpty()) {
-            result.add(new ContinueStatement(continueLabel, continueLabelId));
+            result.add(new ContinueStatement(continueLabel, labelId));
         } else {
-            // Fallback - this shouldn't happen but provide a default
-            result.add(new ContinueStatement(continueLabelId));
+            // Innermost loop continue - no label needed
+            result.add(new ContinueStatement(labelId));
         }
         
         return result;
