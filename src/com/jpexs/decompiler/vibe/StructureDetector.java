@@ -194,8 +194,62 @@ public class StructureDetector {
         Map<Node, LoopStructure> loopHeaders = new HashMap<>();
         for (LoopStructure loop : loops) {
             LoopStructure existing = loopHeaders.get(loop.header);
-            if (existing == null || loop.body.size() > existing.body.size()) {
+            if (existing == null) {
                 loopHeaders.put(loop.header, loop);
+            } else {
+                // Merge loop bodies when there are multiple back-edges to the same header
+                // This handles cases where different paths through the loop have different back-edges
+                Set<Node> mergedBody = new HashSet<>(existing.body);
+                mergedBody.addAll(loop.body);
+                
+                // Keep the back-edge source from the larger body (primary path)
+                Node backEdgeSrc = existing.body.size() >= loop.body.size() ? 
+                                   existing.backEdgeSource : loop.backEdgeSource;
+                
+                // Merge breaks from both loop structures, but only if target is OUTSIDE merged body
+                List<BreakEdge> mergedBreaks = new ArrayList<>();
+                for (BreakEdge brk : existing.breaks) {
+                    if (!mergedBody.contains(brk.to)) {
+                        mergedBreaks.add(brk);
+                    }
+                }
+                for (BreakEdge brk : loop.breaks) {
+                    if (mergedBody.contains(brk.to)) {
+                        continue; // Skip breaks where target is now inside merged body
+                    }
+                    boolean alreadyExists = false;
+                    for (BreakEdge existingBrk : mergedBreaks) {
+                        if (existingBrk.from.equals(brk.from) && existingBrk.to.equals(brk.to)) {
+                            alreadyExists = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyExists) {
+                        mergedBreaks.add(brk);
+                    }
+                }
+                
+                // Merge continues from both loop structures
+                List<ContinueEdge> mergedContinues = new ArrayList<>(existing.continues);
+                for (ContinueEdge cont : loop.continues) {
+                    boolean alreadyExists = false;
+                    for (ContinueEdge existingCont : mergedContinues) {
+                        if (existingCont.from.equals(cont.from) && existingCont.to.equals(cont.to)) {
+                            alreadyExists = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyExists) {
+                        mergedContinues.add(cont);
+                    }
+                }
+                
+                LoopStructure merged = new LoopStructure(existing.header, mergedBody, backEdgeSrc);
+                merged.breaks.clear();
+                merged.breaks.addAll(mergedBreaks);
+                merged.continues.clear();
+                merged.continues.addAll(mergedContinues);
+                loopHeaders.put(loop.header, merged);
             }
         }
         
@@ -803,8 +857,10 @@ public class StructureDetector {
             if (!queue1.isEmpty()) {
                 Node current = queue1.poll();
                 for (Node succ : current.succs) {
-                    if (reachable2.contains(succ)) {
-                        return succ; // Found common node
+                    // Found common node - but don't consider starting branches as merge points
+                    // This prevents false merges when paths cycle back through the loop
+                    if (reachable2.contains(succ) && !succ.equals(branch1) && !succ.equals(branch2)) {
+                        return succ;
                     }
                     if (!reachable1.contains(succ)) {
                         reachable1.add(succ);
@@ -817,8 +873,9 @@ public class StructureDetector {
             if (!queue2.isEmpty()) {
                 Node current = queue2.poll();
                 for (Node succ : current.succs) {
-                    if (reachable1.contains(succ)) {
-                        return succ; // Found common node
+                    // Found common node - but don't consider starting branches as merge points
+                    if (reachable1.contains(succ) && !succ.equals(branch1) && !succ.equals(branch2)) {
+                        return succ;
                     }
                     if (!reachable2.contains(succ)) {
                         reachable2.add(succ);
@@ -1977,12 +2034,65 @@ public class StructureDetector {
         detectBlocksAndPreAssignLoopLabels(loops, ifs, switchStructures);
         
         // Create lookup maps for quick access
+        // Merge loop bodies when there are multiple back-edges to the same header
         Map<Node, LoopStructure> loopHeaders = new HashMap<>();
         for (LoopStructure loop : loops) {
-            // Only add the loop with the largest body for each header (handles nested loops)
             LoopStructure existing = loopHeaders.get(loop.header);
-            if (existing == null || loop.body.size() > existing.body.size()) {
+            if (existing == null) {
                 loopHeaders.put(loop.header, loop);
+            } else {
+                // Merge loop bodies when there are multiple back-edges to the same header
+                Set<Node> mergedBody = new HashSet<>(existing.body);
+                mergedBody.addAll(loop.body);
+                
+                // Keep the back-edge source from the larger body (primary path)
+                Node backEdgeSrc = existing.body.size() >= loop.body.size() ? 
+                                   existing.backEdgeSource : loop.backEdgeSource;
+                
+                // Merge breaks from both loop structures, but only if target is OUTSIDE merged body
+                List<BreakEdge> mergedBreaks = new ArrayList<>();
+                for (BreakEdge brk : existing.breaks) {
+                    if (!mergedBody.contains(brk.to)) {
+                        mergedBreaks.add(brk);
+                    }
+                }
+                for (BreakEdge brk : loop.breaks) {
+                    if (mergedBody.contains(brk.to)) {
+                        continue; // Skip breaks where target is now inside merged body
+                    }
+                    boolean alreadyExists = false;
+                    for (BreakEdge existingBrk : mergedBreaks) {
+                        if (existingBrk.from.equals(brk.from) && existingBrk.to.equals(brk.to)) {
+                            alreadyExists = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyExists) {
+                        mergedBreaks.add(brk);
+                    }
+                }
+                
+                // Merge continues from both loop structures
+                List<ContinueEdge> mergedContinues = new ArrayList<>(existing.continues);
+                for (ContinueEdge cont : loop.continues) {
+                    boolean alreadyExists = false;
+                    for (ContinueEdge existingCont : mergedContinues) {
+                        if (existingCont.from.equals(cont.from) && existingCont.to.equals(cont.to)) {
+                            alreadyExists = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyExists) {
+                        mergedContinues.add(cont);
+                    }
+                }
+                
+                LoopStructure merged = new LoopStructure(existing.header, mergedBody, backEdgeSrc);
+                merged.breaks.clear();
+                merged.breaks.addAll(mergedBreaks);
+                merged.continues.clear();
+                merged.continues.addAll(mergedContinues);
+                loopHeaders.put(loop.header, merged);
             }
         }
         

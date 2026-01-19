@@ -1113,5 +1113,49 @@ public class Examples {
         }
         end;
         */
+        
+        // Example 22: Complex nested ifs in loop with continue and break
+        runExample("Example 22: Complex nested ifs in loop with continue and break",
+            "digraph pcode {\n" +
+            "  start -> loc0000;\n" +
+            "  loc0037 -> loc0058;\n" +
+            "  loc0015 -> loc0047;\n" +
+            "  loc0015 -> loc001f;\n" +
+            "  loc003d -> loc0047;\n" +
+            "  loc001f -> loc002e;\n" +
+            "  loc001f -> loc0028;\n" +
+            "  loc0000 -> loc0051;\n" +
+            "  loc0047 -> loc0051;\n" +
+            "  loc0028 -> loc0051;\n" +
+            "  loc0051 -> loc0015;\n" +
+            "  loc0051 -> loc0058;\n" +
+            "  loc002e -> loc003d;\n" +
+            "  loc002e -> loc0037;\n" +
+            "}"
+        );
+        /*
+        Expected output:
+        
+        start;
+        loc0000;
+        while(true) {
+            if (!loc0051) {
+                break;
+            }
+            if (!loc0015) {        
+                if (!loc001f) {
+                    loc0028;
+                    continue;
+                }
+                if (!loc002e) {
+                    loc0037;
+                    break;
+                }
+                loc003d;
+            }
+            loc0047;
+        }
+        loc0058;
+        */
     }
 }
