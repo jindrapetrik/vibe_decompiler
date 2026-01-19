@@ -3258,6 +3258,7 @@ public class StructureDetector {
         IfStructure ifStruct = ifConditions.get(node);
         if (ifStruct != null) {
             // A) If true branch is empty (goes directly to merge) but false has content, negate condition
+            // Rule: merge on 1st branch => if (!myif) { branch2; }
             boolean trueIsEmpty = ifStruct.trueBranch.equals(ifStruct.mergeNode);
             boolean falseIsEmpty = ifStruct.falseBranch.equals(ifStruct.mergeNode);
             
@@ -3274,7 +3275,23 @@ public class StructureDetector {
                 return result;
             }
             
+            // B) If false branch is empty (goes directly to merge) but true has content, NO negation
+            // Rule: merge on 2nd branch => if (myif) { branch1; }
+            if (falseIsEmpty && !trueIsEmpty) {
+                // No negation: if (cond) { X }
+                Set<Node> trueVisited = new HashSet<>(visited);
+                List<Statement> onTrue = generateStatements(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
+                result.add(new IfStatement(node, false, onTrue));
+                
+                if (ifStruct.mergeNode != null) {
+                    visited.addAll(trueVisited);
+                    result.addAll(generateStatements(ifStruct.mergeNode, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+                }
+                return result;
+            }
+            
             // Standard if-else - negate condition and swap branches so falseBranch content becomes 'then'
+            // Rule: merge on neither branch => if (!myif) { branch2; } else { branch1; }
             Set<Node> falseVisited = new HashSet<>(visited);
             List<Statement> onTrue = generateStatements(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
             
@@ -3812,6 +3829,7 @@ public class StructureDetector {
             boolean falseIsEmpty = ifStruct.falseBranch.equals(ifStruct.mergeNode) || 
                                    (!currentLoop.body.contains(ifStruct.falseBranch) && falseBranchTarget == null);
             
+            // Rule: merge on 1st branch => if (!myif) { branch2; }
             if (trueIsEmpty && !falseIsEmpty) {
                 // Negate condition
                 List<Statement> onTrue = new ArrayList<>();
@@ -3823,6 +3841,30 @@ public class StructureDetector {
                     onTrue.addAll(generateStatementsInLoop(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts));
                 }
                 result.add(new IfStatement(node, true, onTrue));
+                
+                if (ifStruct.mergeNode != null && currentLoop.body.contains(ifStruct.mergeNode)) {
+                    Set<Node> mergeVisited = new HashSet<>(visited);
+                    result.addAll(generateStatementsInLoop(ifStruct.mergeNode, mergeVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+                }
+                return result;
+            }
+            
+            // Rule: merge on 2nd branch => if (myif) { branch1; } (NO negation)
+            if (falseIsEmpty && !trueIsEmpty) {
+                // No negation - output true branch content
+                List<Statement> onTrue = new ArrayList<>();
+                if (trueBranchTarget != null) {
+                    List<Node> path = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
+                    if (trueBranchTarget.isContinue) {
+                        onTrue.addAll(outputPathAndContinueStatements(path, trueBranchTarget.breakLabel, trueBranchTarget.breakLabelId));
+                    } else {
+                        onTrue.addAll(outputPathAndBreakStatements(path, trueBranchTarget.breakLabel, trueBranchTarget.breakLabelId, currentLoop, currentBlock, trueBranchTarget.target));
+                    }
+                } else {
+                    Set<Node> trueVisited = new HashSet<>(visited);
+                    onTrue.addAll(generateStatementsInLoop(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts));
+                }
+                result.add(new IfStatement(node, false, onTrue));  // NO negation
                 
                 if (ifStruct.mergeNode != null && currentLoop.body.contains(ifStruct.mergeNode)) {
                     Set<Node> mergeVisited = new HashSet<>(visited);
@@ -3939,20 +3981,21 @@ public class StructureDetector {
                 return result;
             }
             
-            // Standard if-else
-            Set<Node> trueVisited = new HashSet<>(visited);
-            List<Statement> onTrue = generateStatementsInLoop(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
-            
-            List<Statement> onFalse = new ArrayList<>();
+            // Standard if-else - negate condition and swap branches
+            // Rule: merge on neither branch => if (!myif) { branch2; } else { branch1; }
+            Set<Node> falseVisited = new HashSet<>(visited);
+            List<Statement> onTrue = new ArrayList<>();
             if (falseBranchTarget != null) {
                 List<Node> path = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
-                onFalse.addAll(outputPathAndBreakStatements(path, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId, currentLoop, currentBlock, falseBranchTarget.target));
+                onTrue.addAll(outputPathAndBreakStatements(path, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId, currentLoop, currentBlock, falseBranchTarget.target));
             } else {
-                Set<Node> falseVisited = new HashSet<>(visited);
-                onFalse.addAll(generateStatementsInLoop(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts));
+                onTrue.addAll(generateStatementsInLoop(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts));
             }
             
-            result.add(new IfStatement(node, false, onTrue, onFalse));
+            Set<Node> trueVisited = new HashSet<>(visited);
+            List<Statement> onFalse = generateStatementsInLoop(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
+            
+            result.add(new IfStatement(node, true, onTrue, onFalse));  // negated condition
             
             if (ifStruct.mergeNode != null && currentLoop.body.contains(ifStruct.mergeNode)) {
                 Set<Node> mergeVisited = new HashSet<>(visited);
