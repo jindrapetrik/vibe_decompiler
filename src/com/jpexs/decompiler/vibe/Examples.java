@@ -144,11 +144,11 @@ public class Examples {
             "  loop_header->exit;\n" +
             "  loop_header->body_1;\n" +
             "  body_1->cond_break;\n" +
-            "  cond_break->body_2;\n" +
             "  cond_break->exit;\n" +
+            "  cond_break->body_2;\n" +
             "  body_2->cond_continue;\n" +
-            "  cond_continue->body_3;\n" +
             "  cond_continue->loop_header;\n" +
+            "  cond_continue->body_3;\n" +
             "  body_3->loop_header;\n" +
             "}"
         );        
