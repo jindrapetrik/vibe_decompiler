@@ -1240,6 +1240,18 @@ public class StructureDetector {
                 Node cond = ifStruct.conditionNode;
                 if (!loop.body.contains(cond)) continue;
                 
+                // Skip if the condition is inside a NESTED loop - it should only be processed
+                // in the context of its innermost loop, not outer loops.
+                boolean isInNestedLoop = false;
+                for (LoopStructure innerLoop : mainLoops.values()) {
+                    if (innerLoop == loop) continue;
+                    if (loop.body.contains(innerLoop.header) && innerLoop.body.contains(cond)) {
+                        isInNestedLoop = true;
+                        break;
+                    }
+                }
+                if (isInNestedLoop) continue;
+                
                 Node trueBranch = ifStruct.trueBranch;
                 Node falseBranch = ifStruct.falseBranch;
                 Node mergeNode = ifStruct.mergeNode;
@@ -1247,6 +1259,12 @@ public class StructureDetector {
                 if (trueBranch == null || falseBranch == null) continue;
                 if (mergeNode == null) continue;
                 if (!loop.body.contains(mergeNode)) continue;
+                
+                // If either branch goes OUTSIDE the current loop, this is a BREAK pattern, not a skip.
+                // Skip this conditional for skip block detection - it will be handled as a loop break.
+                if (!loop.body.contains(trueBranch) || !loop.body.contains(falseBranch)) {
+                    continue;
+                }
                 
                 // Find the effective merge point:
                 // 1. If one branch goes directly to a back-edge source (loop continuation), use that
@@ -2332,6 +2350,7 @@ public class StructureDetector {
         Node current = start;
         Set<Node> visited = new HashSet<>();
         boolean foundOutsideLoop = false;
+        Node firstNodeOutside = null;  // Track the first node where we went outside
         
         // Find the loop's natural exit point (the false branch of the loop condition)
         Node loopExitPoint = null;
@@ -2365,12 +2384,17 @@ public class StructureDetector {
             }
             
             // If this is a conditional node inside the loop, stop - no break path
-            if (ifConditions.containsKey(current) && currentLoop.body.contains(current)) {
+            // BUT: only if we haven't gone outside the loop yet. If we went outside and came back,
+            // this is still a break pattern (the path goes outside then returns through outer loop)
+            if (ifConditions.containsKey(current) && currentLoop.body.contains(current) && !foundOutsideLoop) {
                 return null;
             }
             
             // Track if we've gone outside the loop
             if (!currentLoop.body.contains(current)) {
+                if (!foundOutsideLoop) {
+                    firstNodeOutside = current;  // Remember the first node outside
+                }
                 foundOutsideLoop = true;
                 
                 // Check if this is the loop's natural exit point
@@ -2398,6 +2422,12 @@ public class StructureDetector {
                     int breakLabelId = findBreakLabelId(current, loopHeaders, currentLoop);
                     return new BranchTargetResult(current, breakLabel, breakLabelId, false);
                 }
+            } else if (foundOutsideLoop) {
+                // We went outside the loop and came back in - this is a break
+                // Return the FIRST node outside as the break target (so path is empty)
+                String breakLabel = findBreakLabel(firstNodeOutside, loopHeaders, currentLoop);
+                int breakLabelId = findBreakLabelId(firstNodeOutside, loopHeaders, currentLoop);
+                return new BranchTargetResult(firstNodeOutside, breakLabel, breakLabelId, false);
             }
             
             // Check if this is the loop's natural exit point
@@ -3738,6 +3768,9 @@ public class StructureDetector {
                 // If exit is on true branch, condition is NOT negated: if (cond) { break; }
                 // If exit is on false branch, condition IS negated: if (!cond) { break; }
                 loopBody.add(new IfStatement(node, !exitOnTrueBranch, breakBody));
+            } else if (node.succs.size() == 1) {
+                // Unconditional loop header - output the header as a statement
+                loopBody.add(new ExpressionStatement(node));
             }
             
             if (loopContinue != null) {
@@ -3753,6 +3786,21 @@ public class StructureDetector {
             
             if (loopExit != null && currentLoop.body.contains(loopExit)) {
                 result.addAll(generateStatementsInLoop(loopExit, visited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+            } else if (loopExit == null) {
+                // No natural exit from header - check for break targets inside outer loop
+                // Find the most common break target that's inside the outer loop
+                Node breakContinuation = null;
+                for (BreakEdge breakEdge : nestedLoop.breaks) {
+                    if (currentLoop.body.contains(breakEdge.to)) {
+                        if (breakContinuation == null) {
+                            breakContinuation = breakEdge.to;
+                        }
+                        // Use the first one found (could improve to find most common)
+                    }
+                }
+                if (breakContinuation != null && !visited.contains(breakContinuation)) {
+                    result.addAll(generateStatementsInLoop(breakContinuation, visited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+                }
             }
             return result;
         }
