@@ -4361,7 +4361,26 @@ public class StructureDetector {
                 return result;
             }
             
-            // E) False branch is a continue - flatten the structure
+            // E) True branch is reachable from false branch within the loop - use true branch as merge point
+            // This handles cases where both branches eventually converge at the true branch node
+            // Pattern: if (!cond) { falseBranch content } then trueBranch;
+            if (trueBranchTarget == null && falseBranchTarget == null &&
+                currentLoop.body.contains(ifStruct.trueBranch) &&
+                isReachableWithinLoop(ifStruct.falseBranch, ifStruct.trueBranch, currentLoop)) {
+                // Generate: if (!cond) { falseBranch content up to trueBranch } trueBranch;
+                Set<Node> falseVisited = new HashSet<>(visited);
+                // Use trueBranch as the stopAt for falseBranch processing
+                // This ensures we process false branch content up to the merge point
+                List<Statement> onTrue = generateStatementsInLoop(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.trueBranch, switchStarts);
+                result.add(new IfStatement(node, true, onTrue));  // negated condition
+                // After the if, continue with the true branch (merge point)
+                Set<Node> trueVisited = new HashSet<>(visited);
+                trueVisited.add(node);
+                result.addAll(generateStatementsInLoop(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+                return result;
+            }
+            
+            // F) False branch is a continue - flatten the structure
             // When false branch ends with continue, use simple if (no else)
             // since continue returns to loop header, code after the if only runs when condition is false
             if (falseBranchTarget != null && falseBranchTarget.isContinue && trueBranchTarget == null) {
@@ -4531,6 +4550,14 @@ public class StructureDetector {
                 result.add(new BreakStatement(currentBlock.labelId));
             } else {
                 result.add(new BreakStatement(breakLabel, breakLabelId));
+            }
+        } else if (breakLabelId == -1) {
+            // breakLabel is empty AND breakLabelId is -1 - this is a break to the natural loop exit
+            // Use unlabeled break (even if we're inside a block)
+            if (currentLoop != null) {
+                result.add(new BreakStatement(getLoopLabelId(currentLoop.header)));
+            } else {
+                result.add(new BreakStatement(-1));
             }
         } else if (currentBlock != null && currentLoop != null) {
             result.add(new BreakStatement(getLoopLabel(currentLoop.header), getLoopLabelId(currentLoop.header)));
