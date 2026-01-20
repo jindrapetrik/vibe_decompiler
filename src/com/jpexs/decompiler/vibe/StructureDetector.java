@@ -1349,6 +1349,13 @@ public class StructureDetector {
                     continue;
                 }
                 
+                // If a branch IS the merge point, this is a simple if-then pattern, not a skip
+                // Example: if (!cond) { body; } where trueBranch==merge means empty true branch
+                // No labeled block is needed for this pattern - it's just a normal if statement
+                if (trueBranch.equals(effectiveMerge) || falseBranch.equals(effectiveMerge)) {
+                    continue;
+                }
+                
                 // If one branch goes directly to the merge, create a block
                 // This handles patterns like: if (cond) { complex_body } else { goto merge }
                 // In this case, cond itself is the skip source - when the condition's false branch
@@ -3484,8 +3491,9 @@ public class StructureDetector {
                 loopVisited.add(node); // Don't revisit header
                 
                 // Generate the false branch content (inside if (!cond) { ... })
+                // Use trueBranch as stopAt since both branches converge there
                 Set<Node> falseVisited = new HashSet<>(loopVisited);
-                List<Statement> falseBody = generateStatementsInLoop(falseBranch, falseVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, loop, currentBlock, switchStarts);
+                List<Statement> falseBody = generateStatementsInLoop(falseBranch, falseVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, loop, currentBlock, trueBranch, switchStarts);
                 
                 // Only create if statement if false branch has content
                 if (!falseBody.isEmpty()) {
@@ -4137,7 +4145,9 @@ public class StructureDetector {
             if (trueIsEmpty && !falseIsEmpty) {
                 // Negate condition
                 List<Statement> onTrue = new ArrayList<>();
-                if (falseBranchTarget != null) {
+                // When the true branch IS the merge point, don't use falseBranchTarget
+                // The break should be handled at the merge point, not inside the if-body
+                if (falseBranchTarget != null && !ifStruct.trueBranch.equals(ifStruct.mergeNode)) {
                     List<Node> path = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
                     onTrue.addAll(outputPathAndBreakStatements(path, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId, currentLoop, currentBlock, falseBranchTarget.target));
                 } else {
