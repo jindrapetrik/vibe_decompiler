@@ -2214,7 +2214,6 @@ public class StructureDetector {
         for (LoopStructure loop : loops) {
             // Check if there's any labeled block inside this loop with breaks
             // that could potentially target this loop
-            // Skip the return block - it wraps the loop, not the other way around
             for (LabeledBlockStructure block : labeledBlocks) {
                 // Skip the return block since it encompasses the entire program
                 if (block == returnBlock) {
@@ -2235,7 +2234,6 @@ public class StructureDetector {
             
             // Also check if there are loop breaks from inside a labeled block
             // In this case, the IF condition that breaks needs to use the loop label
-            // Skip the return block - it wraps everything and shouldn't affect loop labeling
             for (BreakEdge breakEdge : loop.breaks) {
                 // Check if this break originates from inside a labeled block
                 for (LabeledBlockStructure block : labeledBlocks) {

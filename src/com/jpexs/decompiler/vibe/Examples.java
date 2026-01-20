@@ -1191,14 +1191,14 @@ public class Examples {
         // Example 24: Loop with labeled break to different exit
         runExample("Example 24: Loop with labeled break to different exit",
             "digraph {\n" +
-            "start;\n" +
-            "start->hdr;\n" +
-            "hdr->after;\n" +
-            "hdr->body;\n" +
-            "body->ifr;\n" +
-            "ifr->r;\n" +
-            "ifr->hdr;\n" +
-            "after->end;\n" +
+            "  start;\n" +
+            "  start->hdr;\n" +
+            "  hdr->after;\n" +
+            "  hdr->body;\n" +
+            "  body->ifr;\n" +
+            "  ifr->r;\n" +
+            "  ifr->hdr;\n" +
+            "  after->end;\n" +
             "}"
         );
         /*
