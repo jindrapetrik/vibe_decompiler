@@ -1953,24 +1953,32 @@ public class StructureDetector {
                 // Find the if structure for this loop's header
                 for (IfStructure ifStruct : ifs) {
                     if (ifStruct.conditionNode.equals(loop.header)) {
-                        // The false branch leads to exit
-                        Node falseBranch = ifStruct.falseBranch;
-                        if (terminalNodes.contains(falseBranch)) {
-                            exitNode = falseBranch;
-                        } else {
-                            // Follow the path to find exit
-                            Node current = falseBranch;
-                            Set<Node> visited = new HashSet<>();
-                            while (current != null && !visited.contains(current)) {
-                                visited.add(current);
-                                if (terminalNodes.contains(current)) {
-                                    exitNode = current;
-                                    break;
-                                }
-                                if (current.succs.size() == 1) {
-                                    current = current.succs.get(0);
-                                } else {
-                                    break;
+                        // Find which branch is the exit (the one NOT in the loop body)
+                        Node exitBranch = null;
+                        if (!loop.body.contains(ifStruct.trueBranch)) {
+                            exitBranch = ifStruct.trueBranch;
+                        } else if (!loop.body.contains(ifStruct.falseBranch)) {
+                            exitBranch = ifStruct.falseBranch;
+                        }
+                        
+                        if (exitBranch != null) {
+                            if (terminalNodes.contains(exitBranch)) {
+                                exitNode = exitBranch;
+                            } else {
+                                // Follow the path to find exit
+                                Node current = exitBranch;
+                                Set<Node> visited = new HashSet<>();
+                                while (current != null && !visited.contains(current)) {
+                                    visited.add(current);
+                                    if (terminalNodes.contains(current)) {
+                                        exitNode = current;
+                                        break;
+                                    }
+                                    if (current.succs.size() == 1) {
+                                        current = current.succs.get(0);
+                                    } else {
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -2206,7 +2214,12 @@ public class StructureDetector {
         for (LoopStructure loop : loops) {
             // Check if there's any labeled block inside this loop with breaks
             // that could potentially target this loop
+            // Skip the return block - it wraps the loop, not the other way around
             for (LabeledBlockStructure block : labeledBlocks) {
+                // Skip the return block since it encompasses the entire program
+                if (block == returnBlock) {
+                    continue;
+                }
                 if (loop.body.contains(block.startNode) && !block.breaks.isEmpty()) {
                     // This labeled block is inside the loop AND has breaks
                     // Check if any break targets the loop's exit (outside the loop body)
@@ -2222,9 +2235,14 @@ public class StructureDetector {
             
             // Also check if there are loop breaks from inside a labeled block
             // In this case, the IF condition that breaks needs to use the loop label
+            // Skip the return block - it wraps everything and shouldn't affect loop labeling
             for (BreakEdge breakEdge : loop.breaks) {
                 // Check if this break originates from inside a labeled block
                 for (LabeledBlockStructure block : labeledBlocks) {
+                    // Skip the return block since it encompasses the entire program
+                    if (block == returnBlock) {
+                        continue;
+                    }
                     if (block.body.contains(breakEdge.from)) {
                         // The break is from inside a labeled block, so loop needs a label
                         loopsNeedingLabels.add(loop.header);
@@ -2394,11 +2412,16 @@ public class StructureDetector {
         boolean foundOutsideLoop = false;
         Node firstNodeOutside = null;  // Track the first node where we went outside
         
-        // Find the loop's natural exit point (the false branch of the loop condition)
+        // Find the loop's natural exit point (the branch NOT in the loop body)
         Node loopExitPoint = null;
         IfStructure loopCondIf = ifConditions.get(currentLoop.header);
         if (loopCondIf != null) {
-            loopExitPoint = loopCondIf.falseBranch;
+            // Find which branch is outside the loop body - that's the exit
+            if (!currentLoop.body.contains(loopCondIf.trueBranch)) {
+                loopExitPoint = loopCondIf.trueBranch;
+            } else if (!currentLoop.body.contains(loopCondIf.falseBranch)) {
+                loopExitPoint = loopCondIf.falseBranch;
+            }
         }
         
         // Check if the start is the back-edge source - this is NOT a continue, it's normal loop body
@@ -2452,6 +2475,24 @@ public class StructureDetector {
                     }
                 }
                 
+                // Check for terminal nodes (no successors) - these might be return nodes
+                // This must be checked BEFORE the "multiple or no successors" case below
+                if (current.succs.isEmpty()) {
+                    // Check if this is a "return" node that should target the return block
+                    if (detectedReturnBlock != null) {
+                        for (LabeledBreakEdge breakEdge : detectedReturnBlock.breaks) {
+                            if (breakEdge.from.equals(current)) {
+                                // This is a return node - use the return block label
+                                return new BranchTargetResult(current, detectedReturnBlock.label, detectedReturnBlock.labelId, true);
+                            }
+                        }
+                    }
+                    // Terminal but not a return node - use normal break
+                    String breakLabel = findBreakLabel(current, loopHeaders, currentLoop);
+                    int breakLabelId = findBreakLabelId(current, loopHeaders, currentLoop);
+                    return new BranchTargetResult(current, breakLabel, breakLabelId, false);
+                }
+                
                 // We've gone outside the loop - but if this node leads to the exit point,
                 // continue following to find the actual break target
                 // Only return immediately if this node doesn't have a single successor path to exit
@@ -2459,7 +2500,7 @@ public class StructureDetector {
                     // Continue following to find the actual exit point
                     // (don't return yet - the while loop will handle it)
                 } else {
-                    // Multiple or no successors outside the loop - return this as the break target
+                    // Multiple successors outside the loop - return this as the break target
                     String breakLabel = findBreakLabel(current, loopHeaders, currentLoop);
                     int breakLabelId = findBreakLabelId(current, loopHeaders, currentLoop);
                     return new BranchTargetResult(current, breakLabel, breakLabelId, false);
@@ -4484,9 +4525,11 @@ public class StructureDetector {
         }
         
         // Use unlabeled break when breaking out of immediately enclosing block
+        // BUT: if we're inside a loop within the block, we need a labeled break
+        // because unlabeled break would only exit the loop, not the block
         if (breakLabel != null && !breakLabel.isEmpty()) {
-            if (currentBlock != null && breakLabel.equals(currentBlock.label)) {
-                // Breaking out of the immediately enclosing block - use unlabeled break
+            if (currentBlock != null && breakLabel.equals(currentBlock.label) && currentLoop == null) {
+                // Breaking out of the immediately enclosing block (no loop in between) - use unlabeled break
                 result.add(new BreakStatement(currentBlock.labelId));
             } else {
                 result.add(new BreakStatement(breakLabel, breakLabelId));

@@ -1187,5 +1187,38 @@ public class Examples {
         }
         loc0044;
         */
+        
+        // Example 24: Loop with labeled break to different exit
+        runExample("Example 24: Loop with labeled break to different exit",
+            "digraph {\n" +
+            "start;\n" +
+            "start->hdr;\n" +
+            "hdr->after;\n" +
+            "hdr->body;\n" +
+            "body->ifr;\n" +
+            "ifr->r;\n" +
+            "ifr->hdr;\n" +
+            "after->end;\n" +
+            "}"
+        );
+        /*
+        Expected output:
+        
+        start;
+        block_0: {
+            while(true) {
+                if (hdr) {
+                    break;
+                }
+                body;
+                if (ifr) {
+                    r;
+                    break block_0;
+                }
+            }
+            after;
+            end;
+        }
+        */
     }
 }
