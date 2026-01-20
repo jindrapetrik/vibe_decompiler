@@ -1257,14 +1257,6 @@ public class StructureDetector {
                 Node mergeNode = ifStruct.mergeNode;
                 
                 if (trueBranch == null || falseBranch == null) continue;
-                if (mergeNode == null) continue;
-                if (!loop.body.contains(mergeNode)) continue;
-                
-                // If either branch goes OUTSIDE the current loop, this is a BREAK pattern, not a skip.
-                // Skip this conditional for skip block detection - it will be handled as a loop break.
-                if (!loop.body.contains(trueBranch) || !loop.body.contains(falseBranch)) {
-                    continue;
-                }
                 
                 // Find the effective merge point:
                 // 1. If one branch goes directly to a back-edge source (loop continuation), use that
@@ -1272,24 +1264,67 @@ public class StructureDetector {
                 Node effectiveMerge = null;
                 boolean branchGoesDirectlyToMerge = false;
                 
-                // Check if either branch goes directly to a back-edge source (inner loop continuation)
-                for (LoopStructure innerLoop : loops) {
-                    if (!loop.body.contains(innerLoop.header)) continue; // Not a nested loop
-                    if (innerLoop.header.equals(loop.header)) continue; // Skip loops with same header (different sizes)
-                    
-                    Node backEdgeSrc = innerLoop.backEdgeSource;
-                    if (backEdgeSrc != null && loop.body.contains(backEdgeSrc)) {
-                        // Check if either branch goes directly to this back-edge source
-                        if (trueBranch.equals(backEdgeSrc)) {
-                            // First branch goes directly to back-edge source - this is NOT a skip pattern.
-                            // It's a normal if statement: if (!cond) { falseBranch } // then continue
-                            // Don't set effectiveMerge to skip block creation
-                            continue;
-                        } else if (falseBranch.equals(backEdgeSrc)) {
-                            effectiveMerge = backEdgeSrc;
-                            branchGoesDirectlyToMerge = true;
-                            break;
+                // First, check if either branch goes directly to the CURRENT loop's back-edge source
+                // This handles the case where an if inside a loop has one branch that skips to the
+                // end of the loop body (back-edge source) directly.
+                // This is important because the if's detected merge node might be OUTSIDE the loop,
+                // but we still need to detect skip patterns to the back-edge source.
+                Node currentBackEdgeSrc = loop.backEdgeSource;
+                boolean hasValidBackEdgeSrc = currentBackEdgeSrc != null 
+                    && !currentBackEdgeSrc.equals(loop.header)
+                    && !currentBackEdgeSrc.equals(cond) 
+                    && loop.body.contains(currentBackEdgeSrc);
+                if (hasValidBackEdgeSrc) {
+                    if (trueBranch.equals(currentBackEdgeSrc)) {
+                        // First branch goes directly to back-edge source - NOT a skip pattern
+                        // It's a normal if statement: if (!cond) { falseBranch } // then back-edge
+                        // Don't set effectiveMerge
+                    } else if (falseBranch.equals(currentBackEdgeSrc)) {
+                        effectiveMerge = currentBackEdgeSrc;
+                        branchGoesDirectlyToMerge = true;
+                    }
+                }
+                
+                // Also check nested loops' back-edge sources
+                if (effectiveMerge == null) {
+                    for (LoopStructure innerLoop : loops) {
+                        if (!loop.body.contains(innerLoop.header)) continue; // Not a nested loop
+                        if (innerLoop.header.equals(loop.header)) continue; // Skip loops with same header (different sizes)
+                        
+                        Node backEdgeSrc = innerLoop.backEdgeSource;
+                        if (backEdgeSrc != null && loop.body.contains(backEdgeSrc)) {
+                            // Check if either branch goes directly to this back-edge source
+                            if (trueBranch.equals(backEdgeSrc)) {
+                                // First branch goes directly to back-edge source - this is NOT a skip pattern.
+                                // It's a normal if statement: if (!cond) { falseBranch } // then continue
+                                // Don't set effectiveMerge to skip block creation
+                                continue;
+                            } else if (falseBranch.equals(backEdgeSrc)) {
+                                effectiveMerge = backEdgeSrc;
+                                branchGoesDirectlyToMerge = true;
+                                break;
+                            }
                         }
+                    }
+                }
+                
+                // Skip blocks are used for patterns where one branch jumps directly to a merge point
+                // (like the back-edge source) while another branch takes a longer path.
+                // When we detect such a skip pattern to the back-edge source, we need to process it
+                // even if the if-structure's original merge node is outside the current loop.
+                boolean hasSkipPatternToBackEdge = branchGoesDirectlyToMerge && effectiveMerge != null;
+                if (!hasSkipPatternToBackEdge) {
+                    // Standard case: require merge node to be inside the loop
+                    if (mergeNode == null) continue;
+                    if (!loop.body.contains(mergeNode)) continue;
+                }
+                
+                // If either branch goes OUTSIDE the current loop, this is a BREAK pattern, not a skip.
+                // Skip this conditional for skip block detection - it will be handled as a loop break.
+                // BUT only if we haven't already detected a valid skip to the back-edge source
+                if (!branchGoesDirectlyToMerge) {
+                    if (!loop.body.contains(trueBranch) || !loop.body.contains(falseBranch)) {
+                        continue;
                     }
                 }
                 
