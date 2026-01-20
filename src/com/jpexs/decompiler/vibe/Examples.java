@@ -1291,5 +1291,58 @@ public class Examples {
             loc010a;
         }
         */
+        
+        // Example 26: Loop with if-else branches converging to common point
+        runExample("Example 26: Loop with if-else branches converging to common point",
+            "digraph pcode {\n" +
+            "  start -> loc0000;\n" +
+            "  loc005a -> loc0064;\n" +
+            "  loc007b -> loc0024;\n" +
+            "  loc007b -> loc0082;\n" +
+            "  loc0038 -> loc0047;\n" +
+            "  loc0038 -> loc0041;\n" +
+            "  loc0064 -> loc007b;\n" +
+            "  loc0064 -> loc006d;\n" +
+            "  loc0041 -> loc0082;\n" +
+            "  loc0000 -> loc007b;\n" +
+            "  loc0024 -> loc005a;\n" +
+            "  loc0024 -> loc0038;\n" +
+            "  loc0047 -> loc0064;\n" +
+            "  loc0047 -> loc0050;\n" +
+            "  loc0050 -> loc0082;\n" +
+            "}"
+        );
+        /*
+        Actual output (algorithm produces extra block_1 wrapper due to skip pattern detection):
+        
+        start;
+        block_0: {
+            loc0000;
+            loop_1: while(true) {
+                if (!loc007b) {
+                    break;
+                }
+                block_1: {
+                    if (!loc0024) {
+                        if (!loc0038) {
+                            loc0041;
+                            break;
+                        }
+                        if (!loc0047) {
+                            loc0050;
+                            break;
+                        }
+                    } else {
+                        loc005a;
+                    }
+                }
+                if (!loc0064) {
+                    loc006d;
+                    break block_0;
+                }
+            }
+            loc0082;
+        }
+        */
     }
 }
