@@ -1,5 +1,6 @@
 package com.jpexs.decompiler.vibe.statement;
 
+import com.jpexs.decompiler.vibe.Node;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,6 +16,7 @@ public class SwitchStatement extends Statement {
      */
     public static class Case {
         private final String condition;
+        private final Node conditionNode;
         private final List<Statement> body;
         private final boolean isDefault;
         
@@ -22,10 +24,12 @@ public class SwitchStatement extends Statement {
          * Creates a new case with condition.
          * 
          * @param condition the case condition (e.g., "if1")
+         * @param conditionNode the node representing the case condition
          * @param body the statements in this case
          */
-        public Case(String condition, List<Statement> body) {
+        public Case(String condition, Node conditionNode, List<Statement> body) {
             this.condition = condition;
+            this.conditionNode = conditionNode;
             this.body = body != null ? new ArrayList<>(body) : new ArrayList<>();
             this.isDefault = false;
         }
@@ -37,6 +41,7 @@ public class SwitchStatement extends Statement {
          */
         public Case(List<Statement> body) {
             this.condition = null;
+            this.conditionNode = null;
             this.body = body != null ? new ArrayList<>(body) : new ArrayList<>();
             this.isDefault = true;
         }
@@ -48,6 +53,15 @@ public class SwitchStatement extends Statement {
          */
         public String getCondition() {
             return condition;
+        }
+        
+        /**
+         * Gets the condition node representing the case condition.
+         * 
+         * @return the condition node, or null for default case
+         */
+        public Node getConditionNode() {
+            return conditionNode;
         }
         
         /**

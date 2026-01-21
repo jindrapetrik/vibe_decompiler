@@ -3531,7 +3531,7 @@ public class StructureDetector {
                 if (sc.isDefault) {
                     switchCases.add(new SwitchStatement.Case(caseBody));
                 } else {
-                    switchCases.add(new SwitchStatement.Case(sc.conditionNode.getLabel(), caseBody));
+                    switchCases.add(new SwitchStatement.Case(sc.conditionNode.getLabel(), sc.conditionNode, caseBody));
                 }
             }
             
@@ -3864,7 +3864,7 @@ public class StructureDetector {
                 if (sc.isDefault) {
                     switchCases.add(new SwitchStatement.Case(caseBody));
                 } else {
-                    switchCases.add(new SwitchStatement.Case(sc.conditionNode.getLabel(), caseBody));
+                    switchCases.add(new SwitchStatement.Case(sc.conditionNode.getLabel(), sc.conditionNode, caseBody));
                 }
             }
             
@@ -4629,7 +4629,7 @@ public class StructureDetector {
                     if (caseStmt.isDefault()) {
                         newCases.add(new SwitchStatement.Case(newCaseBody));
                     } else {
-                        newCases.add(new SwitchStatement.Case(caseStmt.getCondition(), newCaseBody));
+                        newCases.add(new SwitchStatement.Case(caseStmt.getCondition(), caseStmt.getConditionNode(), newCaseBody));
                     }
                 }
                 result.add(new SwitchStatement(newCases, switchStmt.getLabel(), switchStmt.getLabelId()));
