@@ -6,4 +6,5 @@ package com.jpexs.decompiler.vibe;
  */
 public interface Dialect {
     public boolean isStrictEqualsIf(Node node);
+    public boolean isStrictNotEqualsIf(Node node);
 }

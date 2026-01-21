@@ -32,6 +32,14 @@ public class DotDialect implements Dialect {
         return "===".equals(getAtttribute(node, "_operator"));
     }
     
+    @Override
+    public boolean isStrictNotEqualsIf(Node node) {
+        if (!node.isConditional()) {
+            return false;
+        }                
+        return "!==".equals(getAtttribute(node, "_operator"));
+    }
+    
     public void setAttribute(Node node, String key, String value) {
         getAttributesMap(node).put(key, value);
     }

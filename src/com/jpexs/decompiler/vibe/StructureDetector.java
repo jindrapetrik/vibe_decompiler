@@ -4959,15 +4959,23 @@ public class StructureDetector {
                 continue;
             }
             
-            // Skip if this condition is not a strict equals (===) - required for switch pattern
+            // Skip if this condition is not a strict equals (===) or strict not equals (!==) - required for switch pattern
+            // For !==, branches are swapped (true branch -> next condition, false branch -> case body)
+            boolean startCondIsNotEquals = false;
             if (!dialect.isStrictEqualsIf(startCond)) {
-                continue;
+                if (dialect.isStrictNotEqualsIf(startCond)) {
+                    startCondIsNotEquals = true;
+                } else {
+                    continue;
+                }
             }
             
-            // Check if this node's FALSE branch leads to another condition (switch pattern)
-            // In a switch pattern: true branch -> case body, false branch -> next condition
-            if (!conditionNodes.contains(ifStruct.falseBranch)) {
-                continue; // Not a switch pattern - false branch should be another condition
+            // Check if the appropriate branch leads to another condition (switch pattern)
+            // For ===: true branch -> case body, false branch -> next condition
+            // For !==: false branch -> case body, true branch -> next condition (swapped)
+            Node startNextCondBranch = startCondIsNotEquals ? ifStruct.trueBranch : ifStruct.falseBranch;
+            if (!conditionNodes.contains(startNextCondBranch)) {
+                continue; // Not a switch pattern - next condition branch should be another condition
             }
             
             // Try to build a switch chain starting from this condition
@@ -4983,11 +4991,17 @@ public class StructureDetector {
                     break;
                 }
                 
-                // Only include conditions that are strict equals (===) in the switch
+                // Check if this is a strict equals (===) or strict not equals (!==)
+                // For !==, branches are swapped
+                boolean isNotEquals = false;
                 if (!dialect.isStrictEqualsIf(currentCond)) {
-                    // This condition is not a strict equals - treat the rest as default body
-                    defaultBody = currentCond;
-                    break;
+                    if (dialect.isStrictNotEqualsIf(currentCond)) {
+                        isNotEquals = true;
+                    } else {
+                        // This condition is not a strict equals or not equals - treat the rest as default body
+                        defaultBody = currentCond;
+                        break;
+                    }
                 }
                 
                 IfStructure currentIf = ifMap.get(currentCond);
@@ -4996,13 +5010,18 @@ public class StructureDetector {
                     break;
                 }
                 
-                conditionChain.add(currentCond);
-                caseBodies.add(currentIf.trueBranch);
+                // For ===: case body is trueBranch, next condition is falseBranch
+                // For !==: case body is falseBranch, next condition is trueBranch (swapped)
+                Node caseBody = isNotEquals ? currentIf.falseBranch : currentIf.trueBranch;
+                Node nextCondBranch = isNotEquals ? currentIf.trueBranch : currentIf.falseBranch;
                 
-                if (conditionNodes.contains(currentIf.falseBranch)) {
-                    currentCond = currentIf.falseBranch;
+                conditionChain.add(currentCond);
+                caseBodies.add(caseBody);
+                
+                if (conditionNodes.contains(nextCondBranch)) {
+                    currentCond = nextCondBranch;
                 } else {
-                    defaultBody = currentIf.falseBranch;
+                    defaultBody = nextCondBranch;
                     break;
                 }
             }
