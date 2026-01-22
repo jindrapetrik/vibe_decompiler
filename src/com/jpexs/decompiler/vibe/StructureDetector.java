@@ -2427,7 +2427,187 @@ public class StructureDetector {
             result.addAll(generateStatements(entryNode, visited, loopHeaders, ifConditions, blockStarts, labeledBreakEdges, loopsNeedingLabels, null, null, null, switchStarts));
         }
         
+        // Renumber labels to ensure they appear in sequential order (0, 1, 2, ...) 
+        // based on their order of appearance in the output
+        return renumberLabels(result);
+    }
+    
+    /**
+     * Renumbers labels in statements to ensure they appear in sequential order (0, 1, 2, ...)
+     * based on their order of appearance in the output (top to bottom, depth-first).
+     * This ensures consistent label naming regardless of detection order.
+     * 
+     * @param statements the statements to renumber
+     * @return the renumbered statements
+     */
+    private List<Statement> renumberLabels(List<Statement> statements) {
+        // Build a mapping from (structure type + old ID) -> new sequential ID
+        // This handles cases where different structure types might have the same old ID
+        Map<String, Integer> labelMapping = new LinkedHashMap<>();
+        int[] nextId = {0};
+        
+        // First pass: collect all label definitions in order of appearance
+        collectLabelDefinitions(statements, labelMapping, nextId);
+        
+        // Second pass: rewrite statements with new label IDs
+        return rewriteStatementsWithMapping(statements, labelMapping, nextId);
+    }
+    
+    /**
+     * Collects label definitions from statements in order of appearance.
+     * Each definition gets assigned a new sequential ID.
+     */
+    private void collectLabelDefinitions(List<Statement> statements, Map<String, Integer> labelMapping, int[] nextId) {
+        for (Statement stmt : statements) {
+            collectLabelDefinitionFromStatement(stmt, labelMapping, nextId);
+        }
+    }
+    
+    /**
+     * Collects label definition from a single statement and its children.
+     * Uses a unique key combining statement identity (via System.identityHashCode) to handle 
+     * cases where multiple structures have the same old ID.
+     */
+    private void collectLabelDefinitionFromStatement(Statement stmt, Map<String, Integer> labelMapping, int[] nextId) {
+        if (stmt instanceof BlockStatement) {
+            BlockStatement block = (BlockStatement) stmt;
+            // Use identity hash to make key unique per statement instance
+            String key = "block_" + System.identityHashCode(block);
+            labelMapping.put(key, nextId[0]++);
+            collectLabelDefinitions(block.getBody(), labelMapping, nextId);
+        } else if (stmt instanceof LoopStatement) {
+            LoopStatement loop = (LoopStatement) stmt;
+            String key = "loop_" + System.identityHashCode(loop);
+            labelMapping.put(key, nextId[0]++);
+            collectLabelDefinitions(loop.getBody(), labelMapping, nextId);
+        } else if (stmt instanceof SwitchStatement) {
+            SwitchStatement sw = (SwitchStatement) stmt;
+            String key = "switch_" + System.identityHashCode(sw);
+            labelMapping.put(key, nextId[0]++);
+            for (SwitchStatement.Case c : sw.getCases()) {
+                collectLabelDefinitions(c.getBody(), labelMapping, nextId);
+            }
+        } else if (stmt instanceof IfStatement) {
+            IfStatement ifStmt = (IfStatement) stmt;
+            collectLabelDefinitions(ifStmt.getOnTrue(), labelMapping, nextId);
+            collectLabelDefinitions(ifStmt.getOnFalse(), labelMapping, nextId);
+        } else if (stmt instanceof TryStatement) {
+            TryStatement tryStmt = (TryStatement) stmt;
+            collectLabelDefinitions(tryStmt.getTryBody(), labelMapping, nextId);
+            for (TryStatement.CatchBlock catchBlock : tryStmt.getCatchBlocks()) {
+                collectLabelDefinitions(catchBlock.getBody(), labelMapping, nextId);
+            }
+        }
+    }
+    
+    /**
+     * Rewrites statements with new label IDs based on the mapping.
+     * Also builds a secondary mapping from old label IDs to new IDs for break/continue references.
+     */
+    private List<Statement> rewriteStatementsWithMapping(List<Statement> statements, Map<String, Integer> labelMapping, int[] nextId) {
+        // Build a mapping from old label ID to new label ID for this traversal
+        // This will be updated as we encounter each labeled structure
+        Map<Integer, Integer> oldToNewId = new HashMap<>();
+        return rewriteStatementsImpl(statements, labelMapping, oldToNewId);
+    }
+    
+    /**
+     * Recursively rewrites statements with new label IDs.
+     */
+    private List<Statement> rewriteStatementsImpl(List<Statement> statements, Map<String, Integer> labelMapping, Map<Integer, Integer> oldToNewId) {
+        List<Statement> result = new ArrayList<>();
+        for (Statement stmt : statements) {
+            result.add(rewriteStatementImpl(stmt, labelMapping, oldToNewId));
+        }
         return result;
+    }
+    
+    /**
+     * Rewrites a single statement with new label IDs.
+     */
+    private Statement rewriteStatementImpl(Statement stmt, Map<String, Integer> labelMapping, Map<Integer, Integer> oldToNewId) {
+        if (stmt instanceof BlockStatement) {
+            BlockStatement block = (BlockStatement) stmt;
+            String key = "block_" + System.identityHashCode(block);
+            int newId = labelMapping.getOrDefault(key, block.getLabelId());
+            // Record the mapping from old ID to new ID (only if not already mapped)
+            if (!oldToNewId.containsKey(block.getLabelId())) {
+                oldToNewId.put(block.getLabelId(), newId);
+            }
+            String newLabel = "block_" + newId;
+            return new BlockStatement(newLabel, newId, rewriteStatementsImpl(block.getBody(), labelMapping, oldToNewId));
+        } else if (stmt instanceof LoopStatement) {
+            LoopStatement loop = (LoopStatement) stmt;
+            String key = "loop_" + System.identityHashCode(loop);
+            int newId = labelMapping.getOrDefault(key, loop.getLabelId());
+            // Record the mapping from old ID to new ID (only if not already mapped)
+            if (!oldToNewId.containsKey(loop.getLabelId())) {
+                oldToNewId.put(loop.getLabelId(), newId);
+            }
+            String newLabel = loop.hasLabel() ? "loop_" + newId : null;
+            return new LoopStatement(newLabel, newId, rewriteStatementsImpl(loop.getBody(), labelMapping, oldToNewId));
+        } else if (stmt instanceof SwitchStatement) {
+            SwitchStatement sw = (SwitchStatement) stmt;
+            String key = "switch_" + System.identityHashCode(sw);
+            int newId = labelMapping.getOrDefault(key, sw.getLabelId());
+            // Record the mapping from old ID to new ID (only if not already mapped)
+            if (!oldToNewId.containsKey(sw.getLabelId())) {
+                oldToNewId.put(sw.getLabelId(), newId);
+            }
+            String newLabel = sw.hasLabel() ? "loop_" + newId : null;
+            List<SwitchStatement.Case> newCases = new ArrayList<>();
+            for (SwitchStatement.Case c : sw.getCases()) {
+                if (c.isDefault()) {
+                    newCases.add(new SwitchStatement.Case(rewriteStatementsImpl(c.getBody(), labelMapping, oldToNewId)));
+                } else {
+                    newCases.add(new SwitchStatement.Case(c.getCondition(), c.getConditionNode(), c.isNegated(), rewriteStatementsImpl(c.getBody(), labelMapping, oldToNewId)));
+                }
+            }
+            return new SwitchStatement(newCases, newLabel, newId);
+        } else if (stmt instanceof IfStatement) {
+            IfStatement ifStmt = (IfStatement) stmt;
+            return new IfStatement(ifStmt.getConditionNode(), ifStmt.isNegated(), 
+                    rewriteStatementsImpl(ifStmt.getOnTrue(), labelMapping, oldToNewId), 
+                    rewriteStatementsImpl(ifStmt.getOnFalse(), labelMapping, oldToNewId));
+        } else if (stmt instanceof TryStatement) {
+            TryStatement tryStmt = (TryStatement) stmt;
+            List<TryStatement.CatchBlock> newCatches = new ArrayList<>();
+            for (TryStatement.CatchBlock catchBlock : tryStmt.getCatchBlocks()) {
+                newCatches.add(new TryStatement.CatchBlock(catchBlock.getExceptionIndex(), 
+                        rewriteStatementsImpl(catchBlock.getBody(), labelMapping, oldToNewId)));
+            }
+            return TryStatement.withMultipleCatch(rewriteStatementsImpl(tryStmt.getTryBody(), labelMapping, oldToNewId), newCatches);
+        } else if (stmt instanceof BreakStatement) {
+            BreakStatement brk = (BreakStatement) stmt;
+            int oldId = brk.getLabelId();
+            int newId = oldToNewId.getOrDefault(oldId, oldId);
+            if (brk.hasLabel()) {
+                // Determine if it's a block or loop label based on the original label
+                String oldLabel = brk.getLabel();
+                String newLabel;
+                if (oldLabel.startsWith("block_")) {
+                    newLabel = "block_" + newId;
+                } else {
+                    newLabel = "loop_" + newId;
+                }
+                return new BreakStatement(newLabel, newId);
+            } else {
+                return new BreakStatement(newId);
+            }
+        } else if (stmt instanceof ContinueStatement) {
+            ContinueStatement cont = (ContinueStatement) stmt;
+            int oldId = cont.getLabelId();
+            int newId = oldToNewId.getOrDefault(oldId, oldId);
+            if (cont.hasLabel()) {
+                String newLabel = "loop_" + newId;
+                return new ContinueStatement(newLabel, newId);
+            } else {
+                return new ContinueStatement(newId);
+            }
+        } else {
+            // ExpressionStatement and others don't have labels
+            return stmt;
+        }
     }
 
 

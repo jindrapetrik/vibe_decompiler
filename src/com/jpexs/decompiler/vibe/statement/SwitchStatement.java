@@ -150,6 +150,15 @@ public class SwitchStatement extends Statement {
         return labelId;
     }
     
+    /**
+     * Checks if this switch has a label.
+     * 
+     * @return true if this switch has a label
+     */
+    public boolean hasLabel() {
+        return label != null && !label.isEmpty();
+    }
+    
     @Override
     public String toString() {
         return toString("");
