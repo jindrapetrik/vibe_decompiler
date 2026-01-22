@@ -1342,5 +1342,45 @@ public class Examples {
             loc0082;
         }
         */
+        
+        // Example 27: Loop with nested conditionals and skip pattern to back-edge
+        runExample("Example 27: Loop with nested conditionals and skip pattern",
+            "digraph pcode {\n" +
+            "  start -> loc0000;\n" +
+            "  loc00c0 -> loc00c1;\n" +
+            "  loc0066 -> loc00ab;\n" +
+            "  loc0066 -> loc0085;\n" +
+            "  loc00a5 -> loc00ab;\n" +
+            "  loc0000 -> loc0051;\n" +
+            "  loc00ab -> loc00b1;\n" +
+            "  loc00b1 -> loc0051;\n" +
+            "  loc0051 -> loc00c0;\n" +
+            "  loc0051 -> loc0066;\n" +
+            "  loc0085 -> loc00a5;\n" +
+            "  loc0085 -> loc00b1;\n" +
+            "}"
+        );
+        /*
+        Expected output (labeled block with negated conditions to avoid node duplication):
+        
+        loc0000;
+        while(true) {
+            if (loc0051) {
+                break;
+            }
+            block_1: {
+                if (!loc0066) {
+                    if (!loc0085) {
+                        break;
+                    }
+                    loc00a5;
+                }
+                loc00ab;
+            }
+            loc00b1;
+        }
+        loc00c0;
+        loc00c1;
+        */
     }
 }

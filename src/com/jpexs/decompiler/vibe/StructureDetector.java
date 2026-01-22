@@ -695,6 +695,9 @@ public class StructureDetector {
         // For a conditional node (2 successors), check if BOTH branches eventually
         // lead only to endNode (i.e., endNode is the merge point of this conditional)
         // This means the edge to endNode is just the normal merge, not a labeled break
+        // HOWEVER, if one branch goes DIRECTLY to endNode while others take longer paths,
+        // it IS a skip pattern that needs a labeled break.
+        int directPathLength = 1; // Direct edge to endNode
         for (Node succ : node.succs) {
             if (succ.equals(endNode)) {
                 continue; // This is the edge we're checking
@@ -705,9 +708,19 @@ public class StructureDetector {
                 // So this might be a real labeled break
                 return false;
             }
+            // Check if the other path is longer than the direct path
+            // Note: Since allPathsLeadTo returned true, shortestPathLength will return a valid distance.
+            // If somehow no path exists, it returns Integer.MAX_VALUE which is > 1, correctly triggering
+            // the skip detection.
+            int otherPathLength = shortestPathLength(succ, endNode, body);
+            if (otherPathLength > directPathLength) {
+                // The other branch takes a longer path to endNode
+                // This means our direct edge is a "skip" - not a normal merge
+                return false;
+            }
         }
         
-        // All other branches lead to endNode, so this is a normal merge
+        // All other branches lead to endNode with similar path lengths, so this is a normal merge
         return true;
     }
     
@@ -1352,7 +1365,9 @@ public class StructureDetector {
                 // If a branch IS the merge point, this is a simple if-then pattern, not a skip
                 // Example: if (!cond) { body; } where trueBranch==merge means empty true branch
                 // No labeled block is needed for this pattern - it's just a normal if statement
-                if (trueBranch.equals(effectiveMerge) || falseBranch.equals(effectiveMerge)) {
+                // EXCEPT when the merge is the back-edge source and a branch goes directly to it -
+                // in that case, we DO need a labeled block to handle the skip pattern.
+                if ((trueBranch.equals(effectiveMerge) || falseBranch.equals(effectiveMerge)) && !branchGoesDirectlyToMerge) {
                     continue;
                 }
                 
@@ -1398,38 +1413,53 @@ public class StructureDetector {
                 // If the block start is an if-condition whose detected merge point equals
                 // the convergence point, and both branches can reach it, then it's a normal
                 // if-else structure that doesn't need a labeled block.
+                // HOWEVER, if there's a skip pattern from a NESTED condition (not the block start itself),
+                // we DO need a labeled block because one branch has a shortcut/skip to the convergence point.
                 boolean isNormalIfElse = false;
-                for (IfStructure ifStruct : ifs) {
-                    if (ifStruct.conditionNode.equals(blockStart)) {
-                        // Found the if for the block start
-                        Node trueBranch = ifStruct.trueBranch;
-                        Node falseBranch = ifStruct.falseBranch;
-                        Node mergeNode = ifStruct.mergeNode;
-                        
-                        // If the if's merge point equals the convergence point,
-                        // check if both branches can reach it
-                        if (mergeNode != null && mergeNode.equals(convergencePoint)) {
-                            // Get the loop containing this if
-                            LoopStructure containingLoop = null;
-                            for (LoopStructure loop : mainLoops.values()) {
-                                if (loop.body.contains(blockStart)) {
-                                    containingLoop = loop;
-                                    break;
-                                }
-                            }
-                            
-                            if (containingLoop != null) {
-                                boolean trueReaches = canReachNodeWithin(trueBranch, convergencePoint, containingLoop.body);
-                                boolean falseReaches = canReachNodeWithin(falseBranch, convergencePoint, containingLoop.body);
-                                
-                                if (trueReaches && falseReaches) {
-                                    // Both branches naturally converge at the merge point
-                                    // This is a normal if-else, not a skip pattern
-                                    isNormalIfElse = true;
-                                }
-                            }
-                        }
+                
+                // First check if any skip pattern comes from a nested condition (not blockStart)
+                boolean hasNestedSkip = false;
+                for (SkipPattern pattern : patterns) {
+                    if (!pattern.condNode.equals(blockStart)) {
+                        hasNestedSkip = true;
                         break;
+                    }
+                }
+                
+                // Only consider it a normal if-else if there are no nested skips
+                if (!hasNestedSkip) {
+                    for (IfStructure ifStruct : ifs) {
+                        if (ifStruct.conditionNode.equals(blockStart)) {
+                            // Found the if for the block start
+                            Node trueBranch = ifStruct.trueBranch;
+                            Node falseBranch = ifStruct.falseBranch;
+                            Node mergeNode = ifStruct.mergeNode;
+                            
+                            // If the if's merge point equals the convergence point,
+                            // check if both branches can reach it
+                            if (mergeNode != null && mergeNode.equals(convergencePoint)) {
+                                // Get the loop containing this if
+                                LoopStructure containingLoop = null;
+                                for (LoopStructure loop : mainLoops.values()) {
+                                    if (loop.body.contains(blockStart)) {
+                                        containingLoop = loop;
+                                        break;
+                                    }
+                                }
+                                
+                                if (containingLoop != null) {
+                                    boolean trueReaches = canReachNodeWithin(trueBranch, convergencePoint, containingLoop.body);
+                                    boolean falseReaches = canReachNodeWithin(falseBranch, convergencePoint, containingLoop.body);
+                                    
+                                    if (trueReaches && falseReaches) {
+                                        // Both branches naturally converge at the merge point
+                                        // This is a normal if-else, not a skip pattern
+                                        isNormalIfElse = true;
+                                    }
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
                 
@@ -1583,6 +1613,7 @@ public class StructureDetector {
             boolean reachableFromOther = false;
             for (SkipPattern other : patterns) {
                 if (other == pattern) continue;
+                if (other.condNode.equals(cond)) continue; // Skip duplicate patterns
                 if (isReachableWithinLoop(other.condNode, cond, pattern.loop)) {
                     reachableFromOther = true;
                     break;
@@ -4279,6 +4310,50 @@ public class StructureDetector {
         // Check if this is an if condition inside the loop
         IfStructure ifStruct = ifConditions.get(node);
         if (ifStruct != null) {
+            // Special case: inside a labeled block, when true branch goes directly to an internal
+            // merge point and false branch contains a skip to the block's end.
+            // Use negated condition to avoid node duplication: if (!cond) { false_branch_with_skip } internal_merge;
+            if (currentBlock != null && !currentBlock.breaks.isEmpty()) {
+                // Check if true branch goes to an internal node (not the block end)
+                // and false branch has a skip pattern to the block end
+                Node trueBranch = ifStruct.trueBranch;
+                Node falseBranch = ifStruct.falseBranch;
+                
+                // Find if there's a labeled break in the false branch path
+                boolean falseBranchHasSkip = false;
+                for (LabeledBreakEdge breakEdge : currentBlock.breaks) {
+                    if (isReachableWithinLoop(falseBranch, breakEdge.from, currentLoop)) {
+                        falseBranchHasSkip = true;
+                        break;
+                    }
+                }
+                
+                // Check if true branch goes to an internal merge point (not the block end)
+                // and both the true branch and the non-skip path of false branch converge there
+                if (falseBranchHasSkip && currentBlock.body.contains(trueBranch) && 
+                    !trueBranch.equals(currentBlock.endNode)) {
+                    // Check if the non-skip paths from false branch also reach trueBranch
+                    boolean falseBranchReachesTrueBranch = isReachableWithinLoop(falseBranch, trueBranch, currentLoop);
+                    
+                    if (falseBranchReachesTrueBranch) {
+                        // Use negated condition: if (!cond) { false_branch } trueBranch;
+                        List<Statement> onTrue = new ArrayList<>();
+                        Set<Node> falseVisited = new HashSet<>(visited);
+                        // Process false branch, stopping at trueBranch (internal merge)
+                        onTrue.addAll(generateStatementsInLoop(falseBranch, falseVisited, loopHeaders, ifConditions, 
+                                      labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, trueBranch, switchStarts));
+                        result.add(new IfStatement(node, true, onTrue)); // negated condition
+                        
+                        // Output the internal merge point (trueBranch) and continue from there
+                        Set<Node> mergeVisited = new HashSet<>(visited);
+                        mergeVisited.addAll(falseVisited);
+                        result.addAll(generateStatementsInLoop(trueBranch, mergeVisited, loopHeaders, ifConditions, 
+                                      labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+                        return result;
+                    }
+                }
+            }
+            
             // Check if true branch leads to a break
             BranchTargetResult trueBranchTarget = findBranchTarget(ifStruct.trueBranch, currentLoop, ifConditions, loopHeaders);
             BranchTargetResult falseBranchTarget = findBranchTarget(ifStruct.falseBranch, currentLoop, ifConditions, loopHeaders);
