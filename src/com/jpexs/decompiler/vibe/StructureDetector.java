@@ -5743,14 +5743,33 @@ public class StructureDetector {
             }
             
             // Second pass: build cases with merged conditions, fall-through, and skip detection
-            // Also detect where default should be inserted (when case body equals default body)
+            // Also detect where default should be inserted:
+            // 1. When case body equals default body (default inserted after that case)
+            // 2. When default body leads to a case body (default inserted before that case)
             List<SwitchCase> cases = new ArrayList<>();
             boolean defaultInserted = false;
+            
+            // Find which case body (if any) the default body leads to
+            int defaultLeadsToIndex = -1;
+            for (int i = 0; i < caseBodies.size(); i++) {
+                if (nodeDirectlyReaches(defaultBody, caseBodies.get(i))) {
+                    defaultLeadsToIndex = i;
+                    break;
+                }
+            }
             
             for (int i = 0; i < conditionChain.size(); i++) {
                 Node cond = conditionChain.get(i);
                 boolean negated = conditionChainNegated.get(i);
                 Node body = caseBodies.get(i);
+                
+                // Check if default should be inserted BEFORE this case
+                // (when default body leads to this case's body)
+                if (!defaultInserted && defaultLeadsToIndex == i && !body.equals(defaultBody)) {
+                    // Insert default before this case (falls through to this case's body)
+                    cases.add(new SwitchCase(null, false, defaultBody, true, false, false));
+                    defaultInserted = true;
+                }
                 
                 // Check if this case body equals the default body
                 // In that case, add a label-only case and insert default right after

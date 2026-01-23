@@ -1628,5 +1628,45 @@ public class Examples {
         loc00a2;
         loc00a9;
         */
+        
+        // Example 34: Switch with default before case (default falls through to case body)
+        runExample("Example 34: Switch with default falling through to case body",
+            "digraph pcode {\n" +
+            "start -> loc0000;\n" +
+            "loc009c -> loc00ad;\n" +
+            "loc00a7 -> loc00ad;\n" +
+            "loc0066 -> loc009c;\n" +
+            "loc0066 -> loc0076;\n" +
+            "loc00ad -> loc00b4;\n" +
+            "loc0076 -> loc00a7;\n" +
+            "loc0076 -> loc0096;\n" +
+            "loc0000 -> loc008b;\n" +
+            "loc0000 -> loc0066;\n" +
+            "loc008b -> loc00ad;\n" +
+            "loc0096 -> loc009c;\n" +
+            "loc0000[_operator=\"===\"];\n" +
+            "loc0066[_operator=\"===\"];\n" +
+            "loc0076[_operator=\"===\"];\n" +
+            "}"
+        );
+        /*
+        Expected output:
+        
+        start;
+        switch {
+            case loc0000:
+                loc008b;
+                break;
+            default:
+                loc0096;
+            case loc0066:
+                loc009c;
+                break;
+            case loc0076:
+                loc00a7;
+        }
+        loc00ad;
+        loc00b4;
+        */
     }
 }
