@@ -2612,12 +2612,31 @@ public class StructureDetector {
 
 
 
+    // Overload without stop nodes for backward compatibility
+    private List<Node> findPathToTarget(Node start, Node target, Map<Node, IfStructure> ifConditions) {
+        return findPathToTarget(start, target, ifConditions, null, null);
+    }
+    
+    /**
+     * Finds the path of intermediate nodes from start to target, only including nodes inside the loop.
+     * When a break occurs, only nodes INSIDE the loop should be output before the break.
+     * Nodes outside the loop will be output after the loop ends.
+     * 
+     * @param loopBody if non-null, only include nodes that are in this set (used for breaks inside loops)
+     */
+    private List<Node> findPathToTargetInLoop(Node start, Node target, Map<Node, IfStructure> ifConditions, Set<Node> loopBody) {
+        return findPathToTarget(start, target, ifConditions, null, loopBody);
+    }
+    
     /**
      * Finds the path of intermediate nodes from start to target.
      * Returns a list of intermediate nodes that should be output before the break statement.
      * Stops at the target node (not including it in the path).
+     * 
+     * @param stopNodes if non-null, stop when encountering a node in this set (exclusive stop)
+     * @param includedNodes if non-null, only include nodes that are in this set (used for loop body checks)
      */
-    private List<Node> findPathToTarget(Node start, Node target, Map<Node, IfStructure> ifConditions, Set<Node> stopNodes) {
+    private List<Node> findPathToTarget(Node start, Node target, Map<Node, IfStructure> ifConditions, Set<Node> stopNodes, Set<Node> includedNodes) {
         List<Node> path = new ArrayList<>();
         Node current = start;
         Set<Node> visited = new HashSet<>();
@@ -2635,6 +2654,12 @@ public class StructureDetector {
                 break;
             }
             
+            // If includedNodes is specified and this node is not in it, stop
+            // This is used for loop body checks - nodes outside the loop should not be included
+            if (includedNodes != null && !includedNodes.contains(current)) {
+                break;
+            }
+            
             // If this is a conditional node, stop - we don't follow through conditionals
             if (ifConditions.containsKey(current)) {
                 break;
@@ -2648,58 +2673,6 @@ public class StructureDetector {
                 current = current.succs.get(0);
             } else if (current.succs.isEmpty()) {
                 // End of path (e.g., exit node)
-                break;
-            } else {
-                // Multiple successors - shouldn't happen for non-conditional nodes, but stop here
-                break;
-            }
-        }
-        
-        return path;
-    }
-    
-    // Overload without stop nodes for backward compatibility
-    private List<Node> findPathToTarget(Node start, Node target, Map<Node, IfStructure> ifConditions) {
-        return findPathToTarget(start, target, ifConditions, null);
-    }
-    
-    /**
-     * Finds the path of intermediate nodes from start to target, only including nodes inside the loop.
-     * When a break occurs, only nodes INSIDE the loop should be output before the break.
-     * Nodes outside the loop will be output after the loop ends.
-     */
-    private List<Node> findPathToTargetInLoop(Node start, Node target, Map<Node, IfStructure> ifConditions, Set<Node> loopBody) {
-        List<Node> path = new ArrayList<>();
-        Node current = start;
-        Set<Node> visited = new HashSet<>();
-        
-        while (current != null && !visited.contains(current)) {
-            visited.add(current);
-            
-            // If we've reached the target, stop (don't include target in path)
-            if (current.equals(target)) {
-                break;
-            }
-            
-            // If this node is outside the loop, stop - don't include it in the path
-            // These nodes will be output after the loop
-            if (loopBody != null && !loopBody.contains(current)) {
-                break;
-            }
-            
-            // If this is a conditional node, stop - we don't follow through conditionals
-            if (ifConditions.containsKey(current)) {
-                break;
-            }
-            
-            // Add this node to the path (it's an intermediate statement inside the loop)
-            path.add(current);
-            
-            // Follow the single successor (non-conditional nodes should have 1 successor)
-            if (current.succs.size() == 1) {
-                current = current.succs.get(0);
-            } else if (current.succs.isEmpty()) {
-                // End of path
                 break;
             } else {
                 // Multiple successors - shouldn't happen for non-conditional nodes, but stop here
