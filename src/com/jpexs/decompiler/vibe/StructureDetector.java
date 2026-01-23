@@ -5749,7 +5749,9 @@ public class StructureDetector {
             List<SwitchCase> cases = new ArrayList<>();
             boolean defaultInserted = false;
             
-            // Find which case body (if any) the default body leads to
+            // Find which case body (if any) the default body leads to (first match wins).
+            // We only need the first match because we want to insert default at the earliest
+            // position where it can fall through to a case body.
             int defaultLeadsToIndex = -1;
             for (int i = 0; i < caseBodies.size(); i++) {
                 if (nodeDirectlyReaches(defaultBody, caseBodies.get(i))) {
@@ -5764,7 +5766,10 @@ public class StructureDetector {
                 Node body = caseBodies.get(i);
                 
                 // Check if default should be inserted BEFORE this case
-                // (when default body leads to this case's body)
+                // (when default body leads to this case's body).
+                // The `!body.equals(defaultBody)` check prevents handling this scenario here
+                // when the case body equals default body, because that case is handled below
+                // with different logic (label-only case + default inserted after).
                 if (!defaultInserted && defaultLeadsToIndex == i && !body.equals(defaultBody)) {
                     // Insert default before this case (falls through to this case's body)
                     cases.add(new SwitchCase(null, false, defaultBody, true, false, false));
