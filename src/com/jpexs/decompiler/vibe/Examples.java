@@ -1483,5 +1483,37 @@ public class Examples {
         loc007b;
         loc007c;
         */
+        
+        // Example 30: Loop with if-then merged to condition with break
+        runExample("Example 30: Loop with if-then merged to condition with break",
+            "digraph pcode {\n" +
+            "start -> loc0000;\n" +
+            "loc0032 -> loc0058;\n" +
+            "loc0032 -> loc0048;\n" +
+            "loc0077 -> loc008e;\n" +
+            "loc0048 -> loc0058;\n" +
+            "loc0000 -> loc0032;\n" +
+            "loc0058 -> loc0077;\n" +
+            "loc0058 -> loc005e;\n" +
+            "loc005e -> loc0032;\n" +
+            "}"
+        );
+        /*
+        Expected output:
+        
+        start;
+        loc0000;
+        while(true) {
+            if (!loc0032) {
+                loc0048;
+            }
+            if (loc0058) {
+                break;
+            }
+            loc005e;
+        }
+        loc0077;
+        loc008e;
+        */
     }
 }

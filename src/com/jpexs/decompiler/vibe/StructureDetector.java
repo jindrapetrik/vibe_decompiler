@@ -1334,11 +1334,11 @@ public class StructureDetector {
                 
                 // If either branch goes OUTSIDE the current loop, this is a BREAK pattern, not a skip.
                 // Skip this conditional for skip block detection - it will be handled as a loop break.
-                // BUT only if we haven't already detected a valid skip to the back-edge source
-                if (!branchGoesDirectlyToMerge) {
-                    if (!loop.body.contains(trueBranch) || !loop.body.contains(falseBranch)) {
-                        continue;
-                    }
+                // This check is ALWAYS performed, even if branchGoesDirectlyToMerge is true,
+                // because when one branch exits the loop (BREAK), we don't need a labeled block -
+                // the loop break handling will take care of it.
+                if (!loop.body.contains(trueBranch) || !loop.body.contains(falseBranch)) {
+                    continue;
                 }
                 
                 // If no back-edge source found, use first convergence
@@ -2661,6 +2661,53 @@ public class StructureDetector {
     // Overload without stop nodes for backward compatibility
     private List<Node> findPathToTarget(Node start, Node target, Map<Node, IfStructure> ifConditions) {
         return findPathToTarget(start, target, ifConditions, null);
+    }
+    
+    /**
+     * Finds the path of intermediate nodes from start to target, only including nodes inside the loop.
+     * When a break occurs, only nodes INSIDE the loop should be output before the break.
+     * Nodes outside the loop will be output after the loop ends.
+     */
+    private List<Node> findPathToTargetInLoop(Node start, Node target, Map<Node, IfStructure> ifConditions, Set<Node> loopBody) {
+        List<Node> path = new ArrayList<>();
+        Node current = start;
+        Set<Node> visited = new HashSet<>();
+        
+        while (current != null && !visited.contains(current)) {
+            visited.add(current);
+            
+            // If we've reached the target, stop (don't include target in path)
+            if (current.equals(target)) {
+                break;
+            }
+            
+            // If this node is outside the loop, stop - don't include it in the path
+            // These nodes will be output after the loop
+            if (loopBody != null && !loopBody.contains(current)) {
+                break;
+            }
+            
+            // If this is a conditional node, stop - we don't follow through conditionals
+            if (ifConditions.containsKey(current)) {
+                break;
+            }
+            
+            // Add this node to the path (it's an intermediate statement inside the loop)
+            path.add(current);
+            
+            // Follow the single successor (non-conditional nodes should have 1 successor)
+            if (current.succs.size() == 1) {
+                current = current.succs.get(0);
+            } else if (current.succs.isEmpty()) {
+                // End of path
+                break;
+            } else {
+                // Multiple successors - shouldn't happen for non-conditional nodes, but stop here
+                break;
+            }
+        }
+        
+        return path;
     }
 
 
@@ -4468,7 +4515,9 @@ public class StructureDetector {
                     
                     // B) If true branch leads to break, flatten the else
                     if (trueBranchTarget != null && !trueBranchTarget.isContinue) {
-                        List<Node> path = findPathToTarget(ifStruct.trueBranch, trueBranchTarget.target, ifConditions);
+                        // Only include nodes that are INSIDE the loop in the path
+                        // Nodes outside the loop will be output after the loop ends
+                        List<Node> path = findPathToTargetInLoop(ifStruct.trueBranch, trueBranchTarget.target, ifConditions, currentLoop.body);
                         // Use the break label from trueBranchTarget, which is computed by findBranchTarget
                         // This correctly handles breaks to outer loops and labeled blocks
                         String breakLabel = trueBranchTarget.breakLabel;
@@ -4515,7 +4564,9 @@ public class StructureDetector {
                     // This takes PRIORITY over continue handling to prefer: if (!cond) { break; } body
                     // over: if (cond) { body; continue; }
                     if (falseBranchTarget != null && !falseBranchTarget.isContinue) {
-                        List<Node> falsePath = findPathToTarget(ifStruct.falseBranch, falseBranchTarget.target, ifConditions);
+                        // Only include nodes that are INSIDE the loop in the path
+                        // Nodes outside the loop will be output after the loop ends
+                        List<Node> falsePath = findPathToTargetInLoop(ifStruct.falseBranch, falseBranchTarget.target, ifConditions, currentLoop.body);
                         List<Statement> breakBody = outputPathAndBreakStatements(falsePath, falseBranchTarget.breakLabel, falseBranchTarget.breakLabelId, currentLoop, currentBlock, falseBranchTarget.target);
                         result.add(new IfStatement(node, true, breakBody));  // negated condition
                         // Continue with true branch at same indent level (flattened)
