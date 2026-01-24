@@ -5123,13 +5123,30 @@ public class StructureDetector {
             if (currentBlock != null && ifStruct.mergeNode != null && 
                 (currentBlock.body.contains(ifStruct.mergeNode) || ifStruct.mergeNode.equals(currentBlock.endNode))) {
                 
+                // Compute the effective merge point - use the earlier of stopAt and ifStruct.mergeNode
+                Node effectiveMerge = ifStruct.mergeNode;
+                if (stopAt != null && !stopAt.equals(ifStruct.mergeNode) && currentLoop.body.contains(stopAt)) {
+                    // There's an outer stopAt that's different from our merge - check which is earlier
+                    // If our merge leads to stopAt (merge is before stopAt in linear flow), use merge
+                    // Otherwise (stopAt is before merge), use stopAt as the constraint
+                    // Note: We check if merge can reach stopAt WITHOUT going through loop header
+                    Set<Node> allowedWithoutHeader = new HashSet<>(currentLoop.body);
+                    allowedWithoutHeader.remove(currentLoop.header);
+                    boolean mergeReachesStopAt = canReachNodeWithin(ifStruct.mergeNode, stopAt, allowedWithoutHeader);
+                    if (!mergeReachesStopAt) {
+                        // Merge does NOT lead to stopAt, so stopAt is before merge - use stopAt
+                        effectiveMerge = stopAt;
+                    }
+                    // Otherwise merge leads to stopAt, so merge is the earlier constraint - keep using merge
+                }
+                
                 // Check if false branch is another if condition (continuation of chain)
                 IfStructure falseIfStruct = ifConditions.get(ifStruct.falseBranch);
                 if (falseIfStruct != null) {
                     // False branch is an if - generate nested structure
                     Set<Node> falseVisited = new HashSet<>(visited);
                     List<Statement> onFalse = generateStatementsInLoop(ifStruct.falseBranch, falseVisited, loopHeaders, ifConditions, 
-                                              labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
+                                              labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, effectiveMerge, switchStarts);
                     
                     // Check if true branch goes directly to the stopAt (outer merge)
                     // If so, don't generate else clause - let stopAt handling process it
@@ -5148,19 +5165,26 @@ public class StructureDetector {
                         // Generate: if (!cond) { false_branch } else { true_branch }
                         Set<Node> trueVisited = new HashSet<>(visited);
                         List<Statement> onTrue = generateStatementsInLoop(ifStruct.trueBranch, trueVisited, loopHeaders, ifConditions, 
-                                                  labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, ifStruct.mergeNode, switchStarts);
+                                                  labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, effectiveMerge, switchStarts);
                         
                         result.add(new IfStatement(node, true, onFalse, onTrue));  // negated condition
                         
-                        // Continue with merge node
-                        Set<Node> mergeVisited = new HashSet<>(visited);
-                        mergeVisited.addAll(falseVisited);
-                        mergeVisited.addAll(trueVisited);
-                        result.addAll(generateStatementsInLoop(ifStruct.mergeNode, mergeVisited, loopHeaders, ifConditions, 
-                                      labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+                        // Continue with merge node only if it's within our effective bounds
+                        // If effectiveMerge != ifStruct.mergeNode, it means there's an outer constraint
+                        // and we should only generate up to effectiveMerge
+                        if (effectiveMerge.equals(ifStruct.mergeNode)) {
+                            Set<Node> mergeVisited = new HashSet<>(visited);
+                            mergeVisited.addAll(falseVisited);
+                            mergeVisited.addAll(trueVisited);
+                            result.addAll(generateStatementsInLoop(ifStruct.mergeNode, mergeVisited, loopHeaders, ifConditions, 
+                                          labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+                        }
                     }
                     return result;
                 }
+                // If false branch is not an if, fall through to other handlers
+                // but use effectiveMerge as the stopAt for subsequent processing
+                stopAt = effectiveMerge;
             }
             
             // B) If true branch ends with break/continue, flatten the else
