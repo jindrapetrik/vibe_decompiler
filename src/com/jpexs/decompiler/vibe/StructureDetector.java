@@ -959,6 +959,48 @@ public class StructureDetector {
     }
     
     /**
+     * Checks if a node leads to the loop header through a single-successor path.
+     * Returns the path (including start but excluding header) if yes, null otherwise.
+     * This is used to detect patterns like: if (v) { x; continue; } where x->header
+     */
+    private List<Node> findPathToLoopHeader(Node start, LoopStructure loop, Map<Node, IfStructure> ifConditions) {
+        List<Node> path = new ArrayList<>();
+        Node current = start;
+        Set<Node> visited = new HashSet<>();
+        
+        while (current != null && !current.equals(loop.header) && !visited.contains(current)) {
+            visited.add(current);
+            
+            // If this is a conditional, we can't follow a simple path
+            if (ifConditions.containsKey(current)) {
+                return null;
+            }
+            
+            // Must be in loop body
+            if (!loop.body.contains(current)) {
+                return null;
+            }
+            
+            path.add(current);
+            
+            // Follow single successor
+            if (current.succs.size() == 1) {
+                current = current.succs.get(0);
+            } else {
+                // Multiple successors without being a conditional - shouldn't happen, but handle it
+                return null;
+            }
+        }
+        
+        // Check if we reached the loop header
+        if (current != null && current.equals(loop.header)) {
+            return path;
+        }
+        
+        return null;
+    }
+    
+    /**
      * Finds the path from start to target, stopping at conditionals.
      * Returns nodes between start (inclusive) and target (exclusive).
      * Returns empty list if target is not reachable without going through conditionals that don't lead to target.
@@ -4759,6 +4801,145 @@ public class StructureDetector {
                     }
                     return result;
                 }
+            }
+        }
+        
+        // Check if one branch leads to loop header through intermediate nodes (path to continue)
+        // This handles patterns like: if (v) { x; continue; } w; where x->header
+        IfStructure ifStructForPath = ifConditions.get(node);
+        if (ifStructForPath != null && currentLoop != null) {
+            List<Node> truePath = findPathToLoopHeader(ifStructForPath.trueBranch, currentLoop, ifConditions);
+            List<Node> falsePath = findPathToLoopHeader(ifStructForPath.falseBranch, currentLoop, ifConditions);
+            
+            // Check if paths share any nodes - if so, the shared nodes should be after the if
+            boolean pathsShareNodes = false;
+            if (truePath != null && falsePath != null) {
+                Set<Node> truePathSet = new HashSet<>(truePath);
+                for (Node falseNode : falsePath) {
+                    if (truePathSet.contains(falseNode)) {
+                        pathsShareNodes = true;
+                        break;
+                    }
+                }
+            }
+            
+            // Also check if false branch can reach any node in true path through the loop
+            if (truePath != null && !truePath.isEmpty() && !pathsShareNodes) {
+                for (Node trueNode : truePath) {
+                    if (isReachableWithinLoop(ifStructForPath.falseBranch, trueNode, currentLoop)) {
+                        pathsShareNodes = true;
+                        break;
+                    }
+                }
+            }
+            
+            // Case 1: Only true path leads to header AND paths don't share nodes
+            if (truePath != null && !truePath.isEmpty() && falsePath == null && !pathsShareNodes) {
+                // True branch leads to loop header - generate: if (cond) { path; continue; } false_branch;
+                List<Statement> continueBody = new ArrayList<>();
+                for (Node pathNode : truePath) {
+                    continueBody.add(new ExpressionStatement(pathNode));
+                }
+                String loopLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
+                int loopLabelId = getLoopLabelId(currentLoop.header);
+                continueBody.add(loopLabel != null ? 
+                    new ContinueStatement(loopLabel, loopLabelId) : 
+                    new ContinueStatement(loopLabelId));
+                result.add(new IfStatement(node, false, continueBody));
+                // Continue with false branch flattened
+                Set<Node> elseVisited = new HashSet<>(visited);
+                elseVisited.add(node);
+                for (Node pathNode : truePath) {
+                    elseVisited.add(pathNode);
+                }
+                result.addAll(generateStatementsInLoop(ifStructForPath.falseBranch, elseVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+                return result;
+            } 
+            // Case 2: Only false path leads to header AND paths don't share nodes
+            else if (falsePath != null && !falsePath.isEmpty() && truePath == null && !pathsShareNodes) {
+                // Also check if true branch can reach any node in false path
+                boolean trueReachesFalsePath = false;
+                for (Node falseNode : falsePath) {
+                    if (isReachableWithinLoop(ifStructForPath.trueBranch, falseNode, currentLoop)) {
+                        trueReachesFalsePath = true;
+                        break;
+                    }
+                }
+                if (!trueReachesFalsePath) {
+                    // False branch leads to loop header - generate: if (!cond) { path; continue; } true_branch;
+                    List<Statement> continueBody = new ArrayList<>();
+                    for (Node pathNode : falsePath) {
+                        continueBody.add(new ExpressionStatement(pathNode));
+                    }
+                    String loopLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
+                    int loopLabelId = getLoopLabelId(currentLoop.header);
+                    continueBody.add(loopLabel != null ? 
+                        new ContinueStatement(loopLabel, loopLabelId) : 
+                        new ContinueStatement(loopLabelId));
+                    result.add(new IfStatement(node, true, continueBody));
+                    // Continue with true branch flattened
+                    Set<Node> thenVisited = new HashSet<>(visited);
+                    thenVisited.add(node);
+                    for (Node pathNode : falsePath) {
+                        thenVisited.add(pathNode);
+                    }
+                    result.addAll(generateStatementsInLoop(ifStructForPath.trueBranch, thenVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, currentLoop, currentBlock, stopAt, switchStarts));
+                    return result;
+                }
+            }
+            // Case 3: Both paths lead to header but one is shorter (skip pattern)
+            // The shorter path should use continue to skip the longer path's nodes
+            else if (truePath != null && falsePath != null && !pathsShareNodes && truePath.size() < falsePath.size()) {
+                // True path is shorter - it skips some nodes that false path goes through
+                // Generate: if (cond) { short_path; continue; } long_path_first_node;
+                List<Statement> continueBody = new ArrayList<>();
+                for (Node pathNode : truePath) {
+                    continueBody.add(new ExpressionStatement(pathNode));
+                }
+                String loopLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
+                int loopLabelId = getLoopLabelId(currentLoop.header);
+                continueBody.add(loopLabel != null ? 
+                    new ContinueStatement(loopLabel, loopLabelId) : 
+                    new ContinueStatement(loopLabelId));
+                result.add(new IfStatement(node, false, continueBody));
+                // Continue with false branch - only output the first node, let the rest be handled naturally
+                Set<Node> elseVisited = new HashSet<>(visited);
+                elseVisited.add(node);
+                for (Node pathNode : truePath) {
+                    elseVisited.add(pathNode);
+                }
+                // Only generate the first node of the false path, the rest will be handled by normal flow
+                if (!falsePath.isEmpty()) {
+                    result.add(new ExpressionStatement(falsePath.get(0)));
+                    elseVisited.add(falsePath.get(0));
+                }
+                return result;
+            }
+            else if (truePath != null && falsePath != null && !pathsShareNodes && falsePath.size() < truePath.size()) {
+                // False path is shorter - it skips some nodes that true path goes through
+                // Generate: if (!cond) { short_path; continue; } long_path_first_node;
+                List<Statement> continueBody = new ArrayList<>();
+                for (Node pathNode : falsePath) {
+                    continueBody.add(new ExpressionStatement(pathNode));
+                }
+                String loopLabel = loopsNeedingLabels.contains(currentLoop.header) ? getLoopLabel(currentLoop.header) : null;
+                int loopLabelId = getLoopLabelId(currentLoop.header);
+                continueBody.add(loopLabel != null ? 
+                    new ContinueStatement(loopLabel, loopLabelId) : 
+                    new ContinueStatement(loopLabelId));
+                result.add(new IfStatement(node, true, continueBody));
+                // Continue with true branch - only output the first node, let the rest be handled naturally
+                Set<Node> thenVisited = new HashSet<>(visited);
+                thenVisited.add(node);
+                for (Node pathNode : falsePath) {
+                    thenVisited.add(pathNode);
+                }
+                // Only generate the first node of the true path, the rest will be handled by normal flow
+                if (!truePath.isEmpty()) {
+                    result.add(new ExpressionStatement(truePath.get(0)));
+                    thenVisited.add(truePath.get(0));
+                }
+                return result;
             }
         }
         
