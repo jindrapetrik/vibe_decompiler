@@ -5602,6 +5602,63 @@ public class StructureDetector {
         
         visited.add(node);
         
+        // Check if this is a loop header (nested loop inside the block)
+        LoopStructure loop = loopHeaders.get(node);
+        if (loop != null) {
+            // Generate the while(true) loop
+            List<Statement> loopBody = new ArrayList<>();
+            
+            // Find the loop exit and continue nodes
+            Node loopExit = null;
+            Node loopContinue = null;
+            for (Node succ : node.succs) {
+                if (loop.body.contains(succ) && !succ.equals(node)) {
+                    loopContinue = succ;
+                } else if (!loop.body.contains(succ)) {
+                    loopExit = succ;
+                }
+            }
+            
+            // Generate break condition for the loop header: if (h) { break; }
+            if (loopExit != null && node.succs.size() == 2) {
+                List<Statement> breakBody = new ArrayList<>();
+                breakBody.add(new BreakStatement(getLoopLabelId(node)));
+                // Check if exit is on first edge (true branch) or second edge (false branch)
+                boolean exitOnTrueBranch = node.succs.get(0).equals(loopExit);
+                // If exit is on true branch, condition is NOT negated: if (cond) { break; }
+                // If exit is on false branch, condition IS negated: if (!cond) { break; }
+                loopBody.add(new IfStatement(node, !exitOnTrueBranch, breakBody));
+            }
+            
+            // Generate the loop body content (nodes inside the loop)
+            if (loopContinue != null) {
+                Set<Node> loopVisited = new HashSet<>(visited);
+                loopVisited.add(node);
+                loopBody.addAll(generateStatementsInBlockLoop(loopContinue, loopVisited, loopHeaders, ifConditions, 
+                                  labeledBreakEdges, currentBlock, loop, node));
+            }
+            
+            // A loop inside a block only needs a label if there's some nested structure
+            // that needs to reference the loop specifically (like a break from nested loop).
+            // For simple loops where breaks either exit the loop naturally or break to the outer block,
+            // we don't need a loop label.
+            // TODO: Add proper detection for when a loop label is needed
+            boolean needsLabel = false;
+            
+            if (needsLabel) {
+                result.add(new LoopStatement(getLoopLabel(node), getLoopLabelId(node), loopBody));
+            } else {
+                result.add(new LoopStatement(getLoopLabelId(node), loopBody));
+            }
+            
+            // Continue with the loop exit node
+            if (loopExit != null && currentBlock.body.contains(loopExit)) {
+                result.addAll(generateStatementsInBlock(loopExit, visited, loopHeaders, ifConditions, 
+                                  labeledBreakEdges, currentBlock, stopAt));
+            }
+            return result;
+        }
+        
         // Check if this is an if condition
         IfStructure ifStruct = ifConditions.get(node);
         if (ifStruct != null && !labeledBreakEdges.containsKey(node)) {
@@ -5654,7 +5711,8 @@ public class StructureDetector {
             
             // When true branch has a labeled break that exits immediately (no real content),
             // put the false branch in a negated if and let the true branch exit implicitly
-            if (trueBranchExits && !falseIsEmpty && !falseBranchExits) {
+            // Only apply this optimization when the true branch is EMPTY (just an exit jump)
+            if (trueBranchExits && !falseIsEmpty && !falseBranchExits && trueIsEmpty) {
                 LabeledBreakEdge trueBreak = labeledBreakEdges.get(ifStruct.trueBranch);
                 if (trueBreak != null && currentBlock.label.equals(trueBreak.label)) {
                     // True branch is directly the labeled break - use negated condition with false branch only
@@ -5689,7 +5747,7 @@ public class StructureDetector {
                 return result;
             }
             
-            if (trueBranchExits && !falseIsEmpty) {
+            if (trueBranchExits && !falseIsEmpty && trueIsEmpty) {
                 // If internalMerge is null, use the outer stopAt to prevent over-generation
                 Node effectiveStopAt = internalMerge != null ? internalMerge : stopAt;
                 Set<Node> trueVisited = new HashSet<>(visited);
@@ -5813,6 +5871,116 @@ public class StructureDetector {
                     // Use unlabeled break since we're breaking out of the immediately enclosing block
                     result.add(new BreakStatement(currentBlock.labelId));
                 }
+            }
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Generate statements for nodes inside a loop that is nested within a labeled block.
+     * This handles the special case where breaks from inside the loop may target
+     * the outer block's end node.
+     */
+    private List<Statement> generateStatementsInBlockLoop(Node node, Set<Node> visited,
+                                            Map<Node, LoopStructure> loopHeaders, Map<Node, IfStructure> ifConditions,
+                                            Map<Node, LabeledBreakEdge> labeledBreakEdges,
+                                            LabeledBlockStructure currentBlock, LoopStructure currentLoop, Node loopHeader) {
+        List<Statement> result = new ArrayList<>();
+        
+        if (node == null || visited.contains(node) || node.equals(loopHeader)) {
+            return result;
+        }
+        
+        // Don't process nodes outside the loop body
+        if (!currentLoop.body.contains(node)) {
+            return result;
+        }
+        
+        visited.add(node);
+        
+        // Check if this node has a labeled break to the outer block
+        LabeledBreakEdge labeledBreak = labeledBreakEdges.get(node);
+        if (labeledBreak != null && currentBlock.label.equals(labeledBreak.label)) {
+            // This node has a break to the outer block
+            IfStructure ifStruct = ifConditions.get(node);
+            if (ifStruct != null) {
+                // Check which branch is the break
+                boolean breakOnTrue = ifStruct.trueBranch.equals(labeledBreak.to);
+                
+                if (breakOnTrue) {
+                    // if (cond) { break block_0; }
+                    List<Statement> breakBody = new ArrayList<>();
+                    breakBody.add(new BreakStatement(currentBlock.label, currentBlock.labelId));
+                    result.add(new IfStatement(node, false, breakBody));
+                    
+                    // Continue with false branch (back edge to loop header)
+                    result.addAll(generateStatementsInBlockLoop(ifStruct.falseBranch, visited, loopHeaders, ifConditions, 
+                                      labeledBreakEdges, currentBlock, currentLoop, loopHeader));
+                } else {
+                    // if (!cond) { break block_0; } - but this is unusual, typically break is on true
+                    List<Statement> breakBody = new ArrayList<>();
+                    breakBody.add(new BreakStatement(currentBlock.label, currentBlock.labelId));
+                    result.add(new IfStatement(node, true, breakBody));
+                    
+                    // Continue with true branch
+                    result.addAll(generateStatementsInBlockLoop(ifStruct.trueBranch, visited, loopHeaders, ifConditions, 
+                                      labeledBreakEdges, currentBlock, currentLoop, loopHeader));
+                }
+                return result;
+            } else {
+                // Non-conditional node with labeled break - just add the expression and break
+                result.add(new ExpressionStatement(node));
+                result.add(new BreakStatement(currentBlock.label, currentBlock.labelId));
+                return result;
+            }
+        }
+        
+        // Check if this is an if condition inside the loop
+        IfStructure ifStruct = ifConditions.get(node);
+        if (ifStruct != null) {
+            Node trueBranch = ifStruct.trueBranch;
+            Node falseBranch = ifStruct.falseBranch;
+            
+            // Check if either branch is the loop back-edge (leads to header)
+            boolean trueIsBackEdge = trueBranch.equals(loopHeader);
+            boolean falseIsBackEdge = falseBranch.equals(loopHeader);
+            
+            if (trueIsBackEdge) {
+                // if (cond) { continue/back-edge } else { content }
+                // Generate the false branch content
+                List<Statement> falseBody = generateStatementsInBlockLoop(falseBranch, new HashSet<>(visited), loopHeaders, ifConditions, 
+                                  labeledBreakEdges, currentBlock, currentLoop, loopHeader);
+                if (!falseBody.isEmpty()) {
+                    result.add(new IfStatement(node, true, falseBody));  // negated: if (!cond) { false_content }
+                }
+            } else if (falseIsBackEdge) {
+                // if (cond) { content } else { continue/back-edge }
+                List<Statement> trueBody = generateStatementsInBlockLoop(trueBranch, new HashSet<>(visited), loopHeaders, ifConditions, 
+                                  labeledBreakEdges, currentBlock, currentLoop, loopHeader);
+                if (!trueBody.isEmpty()) {
+                    result.add(new IfStatement(node, false, trueBody));
+                }
+            } else {
+                // Neither branch is back-edge - generate if-else
+                List<Statement> trueBody = generateStatementsInBlockLoop(trueBranch, new HashSet<>(visited), loopHeaders, ifConditions, 
+                                  labeledBreakEdges, currentBlock, currentLoop, loopHeader);
+                List<Statement> falseBody = generateStatementsInBlockLoop(falseBranch, new HashSet<>(visited), loopHeaders, ifConditions, 
+                                  labeledBreakEdges, currentBlock, currentLoop, loopHeader);
+                if (!trueBody.isEmpty() || !falseBody.isEmpty()) {
+                    result.add(new IfStatement(node, false, trueBody, falseBody));
+                }
+            }
+            return result;
+        }
+        
+        // Regular node - output it and continue with successors
+        result.add(new ExpressionStatement(node));
+        
+        for (Node succ : node.succs) {
+            if (currentLoop.body.contains(succ) && !succ.equals(loopHeader)) {
+                result.addAll(generateStatementsInBlockLoop(succ, visited, loopHeaders, ifConditions, 
+                                  labeledBreakEdges, currentBlock, currentLoop, loopHeader));
             }
         }
         
