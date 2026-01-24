@@ -4090,7 +4090,24 @@ public class StructureDetector {
             if (loopContinue != null) {
                 Set<Node> loopVisited = new HashSet<>();
                 loopVisited.add(node); // Don't revisit header
-                loopBody.addAll(generateStatementsInLoop(loopContinue, loopVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, loop, currentBlock, switchStarts));
+                
+                // Check if there's a labeled block starting at the loop header
+                // If so, wrap the loop body content in this block
+                LabeledBlockStructure headerBlock = blockStarts.get(node);
+                boolean hasHeaderBlock = headerBlock != null && !headerBlock.breaks.isEmpty() 
+                    && loop.body.contains(headerBlock.endNode);
+                
+                if (hasHeaderBlock) {
+                    // Generate block content
+                    List<Statement> blockContent = generateStatementsInLoop(loopContinue, loopVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, loop, headerBlock, switchStarts);
+                    loopBody.add(new BlockStatement(headerBlock.label, headerBlock.labelId, blockContent));
+                    // Continue with the block end node
+                    if (loop.body.contains(headerBlock.endNode) && !loopVisited.contains(headerBlock.endNode)) {
+                        loopBody.addAll(generateStatementsInLoop(headerBlock.endNode, loopVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, loop, currentBlock, switchStarts));
+                    }
+                } else {
+                    loopBody.addAll(generateStatementsInLoop(loopContinue, loopVisited, loopHeaders, ifConditions, labeledBreakEdges, blockStarts, loopsNeedingLabels, loop, currentBlock, switchStarts));
+                }
             }
             
             // Determine loop label - always get loopLabelId, but only show label if needed
