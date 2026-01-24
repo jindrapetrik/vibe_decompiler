@@ -1564,6 +1564,43 @@ public class Examples {
                 break;
             }
             block_1: {
+                if (!loc0065) {
+                    if (!loc0081) {
+                        if (!loc0091) {
+                            if (loc00a1) {
+                                if (!loc00d7) {
+                                    break block_1;
+                                }
+                                loc00f1; 
+                            }
+                            loc00f7;
+                        } else {
+                            loc00cc;
+                        }
+                    } else {
+                        loc00c1;
+                    }
+                    loc00fd;
+                } else {
+                    loc00b6;
+                }
+            }
+            loc0103;            
+        }
+        loc0112;
+        loc0113;
+        
+        */
+        /*
+        Code with switches:
+        
+        start;
+        loc0000;
+        while(true) {
+            if (loc0050) {
+                break;
+            }
+            block_1: {
                 switch {
                     case loc0065:
                         loc00b6;
